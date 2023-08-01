@@ -37,7 +37,7 @@ function calculateSize(spanner) {
       log(`\tCurrent=${spanner.currentSize} ${spanner.units} (> 1000) => overriding stepSize from ${spanner.stepSize} to 1000`,
           {projectId: spanner.projectId, instanceId: spanner.instanceId, severity: 'DEBUG'});
     }
-    var scaleinSize = stepSize < 1000 ? stepSize/2 : stepSize
+    var scaleinSize = stepSize < 1000 ? Math.min(200, stepSize): stepSize
     var suggestedStep =
         (metric.value > metric.threshold ? stepSize : -scaleinSize);
     if (metric.name === baseModule.OVERLOAD_METRIC && spanner.isOverloaded)
