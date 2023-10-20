@@ -19,7 +19,8 @@ variable "project_id" {
 }
 
 variable "location" {
-  type = string
+  type    = string
+  default = "nam5"
 }
 
 variable "schedule" {

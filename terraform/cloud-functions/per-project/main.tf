@@ -49,6 +49,7 @@ module "autoscaler-base" {
 module "autoscaler-functions" {
   source = "../../modules/autoscaler-functions"
 
+  region      = var.region
   project_id      = var.project_id
   region          = var.region
   poller_sa_email = google_service_account.poller_sa.email
@@ -81,7 +82,7 @@ module "spanner" {
 
 module "scheduler" {
   source = "../../modules/scheduler"
-
+  location = var.firestore_location
   project_id              = var.project_id
   location                = var.region
   spanner_name            = var.spanner_name

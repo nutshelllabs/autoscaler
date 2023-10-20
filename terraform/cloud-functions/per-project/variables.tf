@@ -19,7 +19,18 @@ variable "project_id" {
 }
 
 variable "region" {
-  type = string
+  type    = string
+  default = "us-central1"
+}
+
+variable "firestore_location" {
+  type    = string
+  default = "us-central"
+}
+
+variable "zone" {
+  type    = string
+  default = "us-central1-c"
 }
 
 variable "spanner_name" {
