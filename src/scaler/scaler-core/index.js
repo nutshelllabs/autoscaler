@@ -322,6 +322,34 @@ async function processScalingRequest(spanner, autoscalerState) {
   const {savedState, expectedFulfillmentPeriod} =
     await readStateCheckOngoingLRO(spanner, autoscalerState);
 
+  if (spanner.requirements && spanner.requirements.length > 0) {
+    log(`----- ${spanner.projectId}/${spanner.instanceId}: Found ${spanner.requirements.length} scaling requirements`,
+        { severity: 'INFO', projectId: spanner.projectId, instanceId: spanner.instanceId, payload: spanner});
+
+    // just sum everything up
+    const totalRequiredSize = spanner.requirements
+      .map(r => r.requiredSize)
+      .reduce((sum, num) => sum + num, 0);
+    if (totalRequiredSize > spanner.currentSize) {
+      log(`----- ${spanner.projectId}/${spanner.instanceId} has ${spanner.currentSize} ${spanner.units} but ${totalRequiredSize} is required. Autoscaling...`,
+          { severity: 'INFO', projectId: spanner.projectId, instanceId: spanner.instanceId, payload: spanner});
+      try {
+        await autoscalerState.get();
+        await scaleSpannerInstance(spanner, totalRequiredSize);
+        await autoscalerState.set();
+      } catch (err) {
+        log(`----- ${spanner.projectId}/${spanner.instanceId}: Unsuccessful scaling attempt.`,
+         { severity: 'ERROR', projectId: spanner.projectId, instanceId: spanner.instanceId, payload: err});
+        log(`----- ${spanner.projectId}/${spanner.instanceId}: Spanner payload:`,
+         { severity: 'WARNING', projectId: spanner.projectId, instanceId: spanner.instanceId, payload: spanner});
+      }
+      return;
+    } else if (totalRequiredSize > 0) {
+      // we must not scale below this value
+      spanner.minSize = max(totalRequiredSize, spanner.minSize);
+    }
+  }
+
   const suggestedSize = getSuggestedSize(spanner);
   if (
     suggestedSize === spanner.currentSize &&

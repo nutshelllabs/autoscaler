@@ -26,6 +26,7 @@ const express = require('express');
 const monitoring = require('@google-cloud/monitoring');
 const {PubSub} = require('@google-cloud/pubsub');
 const {Spanner} = require('@google-cloud/spanner');
+const {JobsV1Beta3Client} = require('@google-cloud/dataflow').v1beta3;
 const {logger} = require('../../autoscaler-common/logger');
 const Counters = require('./counters.js');
 const {AutoscalerUnits} = require('../../autoscaler-common/types');
@@ -49,9 +50,9 @@ const {ConfigValidator} = require('./config-validator');
 // GCP service clients
 const metricsClient = new monitoring.MetricServiceClient();
 const pubSub = new PubSub();
+const dataflowClient = new JobsV1Beta3Client();
 
 const configValidator = new ConfigValidator();
-
 const baseDefaults = {
   units: AutoscalerUnits.NODES,
   scaleOutCoolingMinutes: 5,
@@ -328,6 +329,79 @@ async function getSpannerMetadata(projectId, spannerInstanceId, units) {
   }
 }
 
+async function getDataflowJobScalingRequirement(projectId, regions, maxUnits) {
+  logger.info({
+    message: `----- ${projectId}/${regions}: Getting Dataflow jobs info -----`,
+    projectId: projectId,
+  });
+
+  var desiredTotalSpannerScaleInPU = 0;
+
+  for (const region of regions) {
+    const jobs = await dataflowClient.listJobsAsync({
+      projectId: projectId,
+      location: region,
+      filter: 'ACTIVE',
+    });
+    for await (const j of jobs) {
+      if (j.name.startsWith("ingestion-job")) {
+        // each ingest job deserves its own 2k PUs
+        logger.info({
+          message: `----- ${projectId}/${regions}: Adding 2000 units for ingest... -----`,
+          projectId: projectId,
+        });
+        desiredTotalSpannerScaleInPU += 2000;
+        if (desiredTotalSpannerScaleInPU > maxUnits) {
+          return maxUnits;
+        }
+        continue;
+      }
+
+      // docgen
+      const jobDetails = await dataflowClient.getJob({
+        view: 'JOB_VIEW_DESCRIPTION',
+        jobId: j.id,
+        projectId: j.projectId,
+        location: j.location
+      });
+
+      var puIncrement = 4000;
+      if (jobDetails.length > 0
+          && jobDetails[0].pipelineDescription
+          && jobDetails[0].pipelineDescription.displayData) {
+        const numWorkersData = jobDetails[0].pipelineDescription.displayData.find(d => d.key == 'numWorkers');
+        if (numWorkersData) {
+          const requestedMaxWorkersForDocgen = numWorkersData.int64Value;
+          if (requestedMaxWorkersForDocgen >= 1000) {
+            // job of 1M docs or more
+            puIncrement = 8000;
+          } else if (requestedMaxWorkersForDocgen >= 800) {
+            puIncrement = 6000;
+          } else if (requestedMaxWorkersForDocgen >= 400) {
+            puIncrement = 4000;
+          } else if (requestedMaxWorkersForDocgen >= 100) {
+            puIncrement = 3000;
+          } else {
+            puIncrement = 2000;
+          }
+        }
+      }
+
+      logger.info({
+        message: `----- ${projectId}/${regions}: Adding ${puIncrement} units for docgen... -----`,
+        projectId: projectId,
+      });
+
+      desiredTotalSpannerScaleInPU += puIncrement;
+      if (desiredTotalSpannerScaleInPU > maxUnits) {
+        return maxUnits;
+      }
+    }
+  }
+
+  return desiredTotalSpannerScaleInPU;
+}
+
 /**
  * Post a message to PubSub with the spanner instance and metrics.
  *
@@ -360,6 +434,11 @@ async function postPubSubMessage(spanner, metrics) {
         err: err,
       });
     });
+}
+
+function justLogTheResult(spanner, metrics) {
+  spanner.metrics = metrics;
+  console.log(JSON.stringify(spanner));
 }
 
 /**
@@ -477,6 +556,12 @@ async function parseAndEnrichPayload(payload) {
           spanners[sIdx].units.toUpperCase(),
         )),
       };
+      if (spanners[sIdx].requirements
+          && spanners[sIdx].requirements[0]
+          && spanners[sIdx].requirements[0].service == 'dataflow') {
+        const dataflowReq = spanners[sIdx].requirements[0];
+        dataflowReq.requiredSize = await getDataflowJobScalingRequirement(dataflowReq.config[0].projectId, dataflowReq.config[0].regions, spanners[sIdx].maxSize)
+      }
       spannersFound.push(spanners[sIdx]);
     } catch (err) {
       logger.error({
@@ -656,8 +741,9 @@ async function checkSpannerScaleMetricsHTTP(req, res) {
     '  "stateProjectId" : "spanner-scaler"' +
     '}]';
   try {
+    const payload = JSON.stringify(req.body);
     const spanners = await parseAndEnrichPayload(payload);
-    await forwardMetrics(postPubSubMessage, spanners);
+    await forwardMetrics(justLogTheResult, spanners);
     res.status(200).end();
     await Counters.incRequestsSuccessCounter();
   } catch (err) {
