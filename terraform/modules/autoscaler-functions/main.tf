@@ -60,6 +60,15 @@ resource "google_pubsub_topic_iam_member" "scaler_pubsub_sub_iam" {
   member  = "serviceAccount:${var.scaler_sa_email}"
 }
 
+// Dataflow
+
+resource "google_project_iam_member" "dataflow_iam" {
+  count   = var.dataflow_project_id != null ? 1 : 0
+  project = var.dataflow_project_id
+  role    = "roles/dataflow.viewer"
+  member  = "serviceAccount:${var.poller_sa_email}"
+}
+
 // Cloud Functions
 
 resource "google_storage_bucket" "bucket_gcf_source" {
