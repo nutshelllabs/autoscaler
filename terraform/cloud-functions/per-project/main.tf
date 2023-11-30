@@ -49,12 +49,12 @@ module "autoscaler-base" {
 module "autoscaler-functions" {
   source = "../../modules/autoscaler-functions"
 
-  region      = var.region
   project_id      = var.project_id
   region          = var.region
   poller_sa_email = google_service_account.poller_sa.email
   scaler_sa_email = google_service_account.scaler_sa.email
   build_sa_id     = module.autoscaler-base.build_sa_id
+  dataflow_project_id = var.dataflow_project
 }
 
 module "firestore" {
@@ -84,7 +84,6 @@ module "scheduler" {
   source = "../../modules/scheduler"
   location = var.firestore_location
   project_id              = var.project_id
-  location                = var.region
   spanner_name            = var.spanner_name
   pubsub_topic            = module.autoscaler-functions.poller_topic
   target_pubsub_topic     = module.autoscaler-functions.scaler_topic

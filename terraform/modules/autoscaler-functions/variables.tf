@@ -18,6 +18,11 @@ variable "project_id" {
   type = string
 }
 
+variable "dataflow_project_id" {
+  type = string
+  default = null
+}
+
 variable "region" {
   type = string
 }
