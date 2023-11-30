@@ -50,10 +50,12 @@ module "autoscaler-base" {
 module "autoscaler-functions" {
   source = "../../modules/autoscaler-functions"
 
-  region      = var.region
+  region          = var.region
   project_id      = var.project_id
   poller_sa_email = google_service_account.poller_sa.email
   scaler_sa_email = google_service_account.scaler_sa.email
+
+  dataflow_project_id = var.dataflow_project
 }
 
 module "firestore" {
