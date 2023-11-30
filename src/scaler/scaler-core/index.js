@@ -179,7 +179,7 @@ async function processScalingRequest(spanner, autoscalerState) {
       return;
     } else if (totalRequiredSize > 0) {
       // we must not scale below this value
-      spanner.minSize = max(totalRequiredSize, spanner.minSize);
+      spanner.minSize = Math.max(totalRequiredSize, spanner.minSize);
     }
   }
 
