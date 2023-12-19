@@ -18,9 +18,10 @@ variable "project_id" {
   type = string
 }
 
-variable "dataflow_project_id" {
-  type = string
-  default = null
+variable "dataflow_project_ids" {
+  type = list(string)
+  default = []
+  description = "List of Dataflow projects for running jobs checks"
 }
 
 variable "region" {
