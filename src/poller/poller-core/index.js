@@ -329,72 +329,79 @@ async function getSpannerMetadata(projectId, spannerInstanceId, units) {
   }
 }
 
-async function getDataflowJobScalingRequirement(projectId, regions, maxUnits) {
+async function getDataflowJobScalingRequirement(config, maxUnits) {
   logger.info({
-    message: `----- ${projectId}/${regions}: Getting Dataflow jobs info -----`,
-    projectId: projectId,
+    message: `----- Getting Dataflow jobs info -----`,
   });
-
   var desiredTotalSpannerScaleInPU = 0;
 
-  for (const region of regions) {
-    const jobs = await dataflowClient.listJobsAsync({
+  for (const project of config) {
+    const projectId = project.projectId;
+    const regions = project.region.join(',');
+    logger.info({
+      message: `----- ${projectId}/${regions}: Getting Dataflow jobs info -----`,
       projectId: projectId,
-      location: region,
-      filter: 'ACTIVE',
     });
-    for await (const j of jobs) {
-      if (j.name.startsWith("ingestion-job")) {
-        // each ingest job deserves its own 2k PUs
+    for (const region of project.region) {
+      const jobs = await dataflowClient.listJobsAsync({
+        projectId: projectId,
+        location: region,
+        filter: 'ACTIVE',
+      });
+      for await (const j of jobs) {
+        if (j.name.startsWith("ingestion-job")) {
+          // each ingest job deserves its own 2k PUs
+          logger.info({
+            message: `----- ${projectId}/${regions}: Adding 2000 units for ingest... -----`,
+            projectId: projectId,
+          });
+          desiredTotalSpannerScaleInPU += 2000;
+          if (desiredTotalSpannerScaleInPU > maxUnits) {
+            return maxUnits;
+          }
+          continue;
+        }
+
+        // docgen
+        const jobDetails = await dataflowClient.getJob({
+          view: 'JOB_VIEW_DESCRIPTION',
+          jobId: j.id,
+          projectId: j.projectId,
+          location: j.location
+        });
+
+        var puIncrement = 4000;
+        if (jobDetails.length > 0
+            && jobDetails[0].pipelineDescription
+            && jobDetails[0].pipelineDescription.displayData) {
+          const numWorkersData = jobDetails[0].pipelineDescription.displayData.find(
+              d => d.key == 'numWorkers');
+          if (numWorkersData) {
+            const requestedMaxWorkersForDocgen = numWorkersData.int64Value;
+            if (requestedMaxWorkersForDocgen >= 1000) {
+              // job of 1M docs or more
+              puIncrement = 8000;
+            } else if (requestedMaxWorkersForDocgen >= 800) {
+              puIncrement = 6000;
+            } else if (requestedMaxWorkersForDocgen >= 400) {
+              puIncrement = 4000;
+            } else if (requestedMaxWorkersForDocgen >= 100) {
+              puIncrement = 3000;
+            } else {
+              puIncrement = 2000;
+            }
+          }
+        }
+
         logger.info({
-          message: `----- ${projectId}/${regions}: Adding 2000 units for ingest... -----`,
+          message: `----- ${projectId}/${regions}: Adding ${puIncrement} units for docgen... -----`,
           projectId: projectId,
         });
-        desiredTotalSpannerScaleInPU += 2000;
+
+        desiredTotalSpannerScaleInPU += puIncrement;
         if (desiredTotalSpannerScaleInPU > maxUnits) {
           return maxUnits;
         }
-        continue;
-      }
-
-      // docgen
-      const jobDetails = await dataflowClient.getJob({
-        view: 'JOB_VIEW_DESCRIPTION',
-        jobId: j.id,
-        projectId: j.projectId,
-        location: j.location
-      });
-
-      var puIncrement = 4000;
-      if (jobDetails.length > 0
-          && jobDetails[0].pipelineDescription
-          && jobDetails[0].pipelineDescription.displayData) {
-        const numWorkersData = jobDetails[0].pipelineDescription.displayData.find(d => d.key == 'numWorkers');
-        if (numWorkersData) {
-          const requestedMaxWorkersForDocgen = numWorkersData.int64Value;
-          if (requestedMaxWorkersForDocgen >= 1000) {
-            // job of 1M docs or more
-            puIncrement = 8000;
-          } else if (requestedMaxWorkersForDocgen >= 800) {
-            puIncrement = 6000;
-          } else if (requestedMaxWorkersForDocgen >= 400) {
-            puIncrement = 4000;
-          } else if (requestedMaxWorkersForDocgen >= 100) {
-            puIncrement = 3000;
-          } else {
-            puIncrement = 2000;
-          }
-        }
-      }
-
-      logger.info({
-        message: `----- ${projectId}/${regions}: Adding ${puIncrement} units for docgen... -----`,
-        projectId: projectId,
-      });
-
-      desiredTotalSpannerScaleInPU += puIncrement;
-      if (desiredTotalSpannerScaleInPU > maxUnits) {
-        return maxUnits;
       }
     }
   }
@@ -560,7 +567,7 @@ async function parseAndEnrichPayload(payload) {
           && spanners[sIdx].requirements[0]
           && spanners[sIdx].requirements[0].service == 'dataflow') {
         const dataflowReq = spanners[sIdx].requirements[0];
-        dataflowReq.requiredSize = await getDataflowJobScalingRequirement(dataflowReq.config[0].projectId, dataflowReq.config[0].regions, spanners[sIdx].maxSize)
+        dataflowReq.requiredSize = await getDataflowJobScalingRequirement(dataflowReq.config, spanners[sIdx].maxSize)
       }
       spannersFound.push(spanners[sIdx]);
     } catch (err) {
