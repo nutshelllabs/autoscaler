@@ -55,7 +55,7 @@ module "autoscaler-functions" {
   poller_sa_email = google_service_account.poller_sa.email
   scaler_sa_email = google_service_account.scaler_sa.email
 
-  dataflow_project_id = var.dataflow_project
+  dataflow_project_ids = local.dataflow_project_ids
 }
 
 module "firestore" {
@@ -124,9 +124,9 @@ module "scheduler" {
       "requirements": [
         {
           "service": "dataflow",
-          "config": [{
-            "projectId": var.dataflow_project,
-            "regions": var.dataflow_regions
+          "config": [for project_id in local.dataflow_project_ids: {
+            "projectId": project_id,
+            "region": var.dataflow_regions,
           }],
         }
       ]

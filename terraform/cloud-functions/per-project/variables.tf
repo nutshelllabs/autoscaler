@@ -131,11 +131,20 @@ variable "scale_in_cooling_minutes" {
     description = "Minimum Number of minutes between scale in operations."
 }
 
-// TODO: support project list
 variable "dataflow_project" {
   type = string
   default = null
   description = "Dataflow project for running jobs checks"
+}
+
+variable "dataflow_project_ids" {
+  type = list(string)
+  default = []
+  description = "List of Dataflow projects for running jobs checks, for back-compat transforms to a union of dataflow_project and dataflow_project_ids"
+}
+
+locals {
+  dataflow_project_ids = distinct(var.dataflow_project == null ? var.dataflow_project_ids : concat([var.dataflow_project], var.dataflow_project_ids))
 }
 
 variable "dataflow_regions" {
