@@ -127,6 +127,7 @@ module "scheduler" {
           "config": [for project_id in local.dataflow_project_ids: {
             "projectId": project_id,
             "region": var.dataflow_regions,
+            "multiplier": var.dataflow_pu_multiplier,
           }],
         }
       ]

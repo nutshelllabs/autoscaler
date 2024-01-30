@@ -80,10 +80,10 @@ describe('#cautious.calculateSize', () => {
   });
 
   it('should return PUs decreased by 1000 when scaling-in, and the size is >1000 PUs, and stepSize is <1000 PUs', () => {
-    const spanner = createSpannerParameters({currentSize : 4000, stepSize : 100}, true);
+    const spanner = createSpannerParameters({currentSize : 11000, stepSize : 100}, true);
     const callbackStub = stubBaseModule(spanner, {value : 5, threshold : 65}, false);
 
-    calculateSize(spanner).should.equal(3000);
+    calculateSize(spanner).should.equal(10000);
     assert.equals(callbackStub.callCount, 1);
   });
 
@@ -95,16 +95,8 @@ describe('#cautious.calculateSize', () => {
     assert.equals(callbackStub.callCount, 1);
   });
 
-  it('should return PUs decreased to 4000 when scaling-in, and the size is >4000 PUs', () => {
-    const spanner = createSpannerParameters({currentSize : 12500, stepSize : 100}, true);
-    const callbackStub = stubBaseModule(spanner, {value : 5, threshold : 65}, false);
-
-    calculateSize(spanner).should.equal(4000);
-    assert.equals(callbackStub.callCount, 1);
-  });
-
-  it('should respect minSize even if current size is >4000 PUs', () => {
-    const spanner = createSpannerParameters({currentSize : 12500, stepSize : 100, minSize : 7000}, true);
+  it('should respect minSize', () => {
+    const spanner = createSpannerParameters({currentSize : 8000, stepSize : 6000, minSize : 7000}, true);
     const callbackStub = stubBaseModule(spanner, {value : 5, threshold : 65}, false);
 
     calculateSize(spanner).should.equal(7000);

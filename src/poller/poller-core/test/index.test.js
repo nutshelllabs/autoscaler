@@ -217,7 +217,7 @@ describe('#parseAndEnrichPayload', () => {
     });
 
     it('should add dataflow requirement if dataflow is present in the config', async () => {
-        const payload = '[{"projectId": "my-spanner-project", "instanceId": "spanner1", "scalerPubSubTopic": "spanner-scaling", "minNodes": 10, "metrics": [{"filter": "my super cool filter", "name": "bogus", "multi_regional_threshold":20}], "requirements": [{"service": "dataflow", "config": [{"projectId": "prj-foo","regions": ["us-central1", "us-west2"]}]}]}]';
+        const payload = '[{"projectId": "my-spanner-project", "instanceId": "spanner1", "scalerPubSubTopic": "spanner-scaling", "minNodes": 10, "metrics": [{"filter": "my super cool filter", "name": "bogus", "multi_regional_threshold":20}], "requirements": [{"service": "dataflow", "config": [{"multiplier": "10", "projectId": "prj-foo","regions": ["us-central1", "us-west2"]}]}]}]';
 
         let stub = sinon.stub().resolves({currentNode: 5, regional: true});
         let unset = app.__set__('getSpannerMetadata', stub);
