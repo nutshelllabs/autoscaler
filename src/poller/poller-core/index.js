@@ -338,8 +338,9 @@ async function getDataflowJobScalingRequirement(config, maxUnits) {
   for (const project of config) {
     const projectId = project.projectId;
     const regions = project.region.join(',');
+    const multiplier = Number(project.multiplier);
     logger.info({
-      message: `----- ${projectId}/${regions}: Getting Dataflow jobs info -----`,
+      message: `----- ${projectId}/${regions}: Getting Dataflow jobs info, multiplier is ${multiplier} -----`,
       projectId: projectId,
     });
     for (const region of project.region) {
@@ -350,12 +351,13 @@ async function getDataflowJobScalingRequirement(config, maxUnits) {
       });
       for await (const j of jobs) {
         if (j.name.startsWith("ingestion-job")) {
-          // each ingest job deserves its own 2k PUs
+          // each ingest job deserves its own 4k PUs
+          const ingestIncrement = 4000 * multiplier;
           logger.info({
-            message: `----- ${projectId}/${regions}: Adding 2000 units for ingest... -----`,
+            message: `----- ${projectId}/${regions}: Adding ${ingestIncrement} units for ingest... -----`,
             projectId: projectId,
           });
-          desiredTotalSpannerScaleInPU += 2000;
+          desiredTotalSpannerScaleInPU += ingestIncrement;
           if (desiredTotalSpannerScaleInPU > maxUnits) {
             return maxUnits;
           }
@@ -378,20 +380,14 @@ async function getDataflowJobScalingRequirement(config, maxUnits) {
               d => d.key == 'numWorkers');
           if (numWorkersData) {
             const requestedMaxWorkersForDocgen = numWorkersData.int64Value;
-            if (requestedMaxWorkersForDocgen >= 1000) {
-              // job of 1M docs or more
+            if (requestedMaxWorkersForDocgen >= 800) {
               puIncrement = 8000;
-            } else if (requestedMaxWorkersForDocgen >= 800) {
-              puIncrement = 6000;
             } else if (requestedMaxWorkersForDocgen >= 400) {
-              puIncrement = 4000;
-            } else if (requestedMaxWorkersForDocgen >= 100) {
-              puIncrement = 3000;
-            } else {
-              puIncrement = 2000;
+              puIncrement = 6000;
             }
           }
         }
+        puIncrement *= multiplier;
 
         logger.info({
           message: `----- ${projectId}/${regions}: Adding ${puIncrement} units for docgen... -----`,
@@ -567,6 +563,11 @@ async function parseAndEnrichPayload(payload) {
           && spanners[sIdx].requirements[0]
           && spanners[sIdx].requirements[0].service == 'dataflow') {
         const dataflowReq = spanners[sIdx].requirements[0];
+        for (const config of dataflowReq.config) {
+          if (isNaN(Number(config.multiplier))) {
+            config.multiplier = 1;
+          }
+        }
         dataflowReq.requiredSize = await getDataflowJobScalingRequirement(dataflowReq.config, spanners[sIdx].maxSize)
       }
       spannersFound.push(spanners[sIdx]);
