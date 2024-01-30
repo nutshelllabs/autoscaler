@@ -143,6 +143,12 @@ variable "dataflow_project_ids" {
   description = "List of Dataflow projects for running jobs checks, for back-compat transforms to a union of dataflow_project and dataflow_project_ids"
 }
 
+variable "dataflow_pu_multiplier" {
+  type = number
+  default = 1
+  description = "Multiplier to PU increment requirement for running Dataflow jobs"
+}
+
 locals {
   dataflow_project_ids = distinct(var.dataflow_project == null ? var.dataflow_project_ids : concat([var.dataflow_project], var.dataflow_project_ids))
 }
