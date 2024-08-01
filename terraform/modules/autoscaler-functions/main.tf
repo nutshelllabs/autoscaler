@@ -108,7 +108,7 @@ resource "google_cloudfunctions_function" "poller_function" {
   project             = var.project_id
   region              = var.region
   ingress_settings    = "ALLOW_INTERNAL_AND_GCLB"
-  available_memory_mb = "256"
+  available_memory_mb = "512"
   entry_point         = "checkSpannerScaleMetricsPubSub"
   runtime             = "nodejs${var.nodejs_version}"
   event_trigger {
@@ -129,7 +129,7 @@ resource "google_cloudfunctions_function" "scaler_function" {
   project             = var.project_id
   region              = var.region
   ingress_settings    = "ALLOW_INTERNAL_AND_GCLB"
-  available_memory_mb = "256"
+  available_memory_mb = "512"
   entry_point         = "scaleSpannerInstancePubSub"
   runtime             = "nodejs${var.nodejs_version}"
   event_trigger {
