@@ -23,30 +23,48 @@
  * under 1000, or to nearest 1000 otherwise.
  */
 const baseModule = require('./base');
-const {log, maybeRound} = require('../utils.js');
+const {maybeRound} = require('../utils.js');
+const {logger} = require('../../../autoscaler-common/logger');
 
+/**
+ * Calculate the suggested size for cautious scaling
+ * @param {AutoscalerSpanner} spanner - Spanner instance
+ * @return {number}
+ */
 function calculateSize(spanner) {
   return baseModule.loopThroughSpannerMetrics(spanner, (spanner, metric) => {
-    if (baseModule.metricValueWithinRange(metric))
-      return spanner.currentSize;  // No change
+    if (baseModule.metricValueWithinRange(metric)) return spanner.currentSize; // No change
 
-    var stepSize = spanner.stepSize;
+    let stepSize = spanner.stepSize;
     // After 1000 PUs, scaling can only be done in steps of 1000 PUs
-    if(spanner.units.toUpperCase() == 'PROCESSING_UNITS' && spanner.currentSize > 1000 && stepSize < 1000) {
+    if (
+      spanner.units.toUpperCase() == 'PROCESSING_UNITS' &&
+      spanner.currentSize > 1000 &&
+      stepSize < 1000
+    ) {
       stepSize = 1000;
-      log(`\tCurrent=${spanner.currentSize} ${spanner.units} (> 1000) => overriding stepSize from ${spanner.stepSize} to 1000`,
-          {projectId: spanner.projectId, instanceId: spanner.instanceId, severity: 'DEBUG'});
+      logger.debug({
+        message: `\tCurrent=${spanner.currentSize} ${spanner.units} (> 1000) => overriding stepSize from ${spanner.stepSize} to 1000`,
+        projectId: spanner.projectId,
+        instanceId: spanner.instanceId,
+      });
     }
-    var scaleinSize = stepSize < 1000 ? Math.min(200, stepSize): stepSize
-    var suggestedStep =
-        (metric.value > metric.threshold ? stepSize : -scaleinSize);
+    const scaleinSize = stepSize < 1000 ? Math.min(200, stepSize) : stepSize;
+    let suggestedStep =
+      metric.value > metric.threshold ? stepSize : -scaleinSize;
     if (metric.name === baseModule.OVERLOAD_METRIC && spanner.isOverloaded)
       suggestedStep = spanner.overloadStepSize;
 
-    return maybeRound(Math.max(spanner.currentSize + suggestedStep, spanner.minSize), spanner.units, metric.name, spanner.projectId, spanner.instanceId);
+    return maybeRound(
+      Math.max(spanner.currentSize + suggestedStep, spanner.minSize),
+      spanner.units,
+      metric.name,
+      spanner.projectId,
+      spanner.instanceId,
+    );
   });
 }
 
 module.exports = {
-  calculateSize
+  calculateSize,
 };

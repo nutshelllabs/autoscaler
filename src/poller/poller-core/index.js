@@ -329,11 +329,17 @@ async function getSpannerMetadata(projectId, spannerInstanceId, units) {
   }
 }
 
+/**
+ * Get scaling requirements for Dataflow jobs
+ * @param {Array} config - Dataflow configuration
+ * @param {number} maxUnits - Maximum units
+ * @return {Promise<number>}
+ */
 async function getDataflowJobScalingRequirement(config, maxUnits) {
   logger.info({
     message: `----- Getting Dataflow jobs info -----`,
   });
-  var desiredTotalSpannerScaleInPU = 0;
+  let desiredTotalSpannerScaleInPU = 0;
 
   for (const project of config) {
     const projectId = project.projectId;
@@ -350,7 +356,7 @@ async function getDataflowJobScalingRequirement(config, maxUnits) {
         filter: 'ACTIVE',
       });
       for await (const j of jobs) {
-        if (j.name.startsWith("ingestion-job")) {
+        if (j.name.startsWith('ingestion-job')) {
           // each ingest job deserves its own 4k PUs
           const ingestIncrement = 4000 * multiplier;
           logger.info({
@@ -369,15 +375,19 @@ async function getDataflowJobScalingRequirement(config, maxUnits) {
           view: 'JOB_VIEW_DESCRIPTION',
           jobId: j.id,
           projectId: j.projectId,
-          location: j.location
+          location: j.location,
         });
 
-        var puIncrement = 4000;
-        if (jobDetails.length > 0
-            && jobDetails[0].pipelineDescription
-            && jobDetails[0].pipelineDescription.displayData) {
-          const numWorkersData = jobDetails[0].pipelineDescription.displayData.find(
-              d => d.key == 'numWorkers');
+        let puIncrement = 4000;
+        if (
+          jobDetails.length > 0 &&
+          jobDetails[0].pipelineDescription &&
+          jobDetails[0].pipelineDescription.displayData
+        ) {
+          const numWorkersData =
+            jobDetails[0].pipelineDescription.displayData.find(
+              (d) => d.key == 'numWorkers',
+            );
           if (numWorkersData) {
             const requestedMaxWorkersForDocgen = numWorkersData.int64Value;
             if (requestedMaxWorkersForDocgen >= 800) {
@@ -439,6 +449,11 @@ async function postPubSubMessage(spanner, metrics) {
     });
 }
 
+/**
+ * Log the result for testing/debugging
+ * @param {AutoscalerSpanner} spanner - Spanner instance
+ * @param {Array} metrics - Metrics array
+ */
 function justLogTheResult(spanner, metrics) {
   spanner.metrics = metrics;
   console.log(JSON.stringify(spanner));
@@ -559,16 +574,21 @@ async function parseAndEnrichPayload(payload) {
           spanners[sIdx].units.toUpperCase(),
         )),
       };
-      if (spanners[sIdx].requirements
-          && spanners[sIdx].requirements[0]
-          && spanners[sIdx].requirements[0].service == 'dataflow') {
+      if (
+        spanners[sIdx].requirements &&
+        spanners[sIdx].requirements[0] &&
+        spanners[sIdx].requirements[0].service == 'dataflow'
+      ) {
         const dataflowReq = spanners[sIdx].requirements[0];
         for (const config of dataflowReq.config) {
           if (isNaN(Number(config.multiplier))) {
             config.multiplier = 1;
           }
         }
-        dataflowReq.requiredSize = await getDataflowJobScalingRequirement(dataflowReq.config, spanners[sIdx].maxSize)
+        dataflowReq.requiredSize = await getDataflowJobScalingRequirement(
+          dataflowReq.config,
+          spanners[sIdx].maxSize,
+        );
       }
       spannersFound.push(spanners[sIdx]);
     } catch (err) {
@@ -744,8 +764,8 @@ async function checkSpannerScaleMetricsHTTP(req, res) {
     '  "instanceId": "autoscale-test", ' +
     '  "scalerPubSubTopic": ' +
     '     "projects/spanner-scaler/topics/test-scaling", ' +
-    '  "minNodes": 1, ' +
-    '  "maxNodes": 3, ' +
+    '  "minSize": 1, ' +
+    '  "maxSize": 3, ' +
     '  "stateProjectId" : "spanner-scaler"' +
     '}]';
   try {

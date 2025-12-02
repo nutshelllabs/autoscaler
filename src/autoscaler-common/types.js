@@ -82,6 +82,7 @@ const AutoscalerUnits = {
  *    stepSize: number,
  *    overloadStepSize: number,
  *    metrics: (SpannerMetric | SpannerMetricValue)[],
+ *    requirements?: any[],
  * }} SpannerConfig;
  */
 
