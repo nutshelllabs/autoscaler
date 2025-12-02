@@ -35,7 +35,7 @@
     *   [Thresholds](#thresholds)
     *   [Margins](#margins)
     *   [Metrics](#metrics)
-*   [Example configuration for Cloud Functions](#example-configuration-for-cloud-functions)
+*   [Example configuration for Cloud Run functions](#example-configuration-for-cloud-run-functions)
 *   [Example configuration for Google Kubernetes Engine](#example-configuration-for-google-kubernetes-engine)
 
 ## Overview
@@ -61,13 +61,21 @@ instance is [regional or multi-region][spanner-regional].
 The following are the configuration parameters consumed by the Poller component.
 Some of these parameters are forwarded to the Scaler component as well.
 
-In the case of the Poller and Scaler components deployed to Cloud Functions,
+In the case of the Poller and Scaler components deployed to Cloud Run functions,
 the parameters are defined using JSON in the payload of the PubSub message that
 is published by the Cloud Scheduler job. When deployed to Kubernetes, the
 configuration parameters are defined in YAML in a [Kubernetes ConfigMap][configmap].
 
 See the [configuration section][autoscaler-home-config] in the home page for
 instructions on how to change the payload.
+
+The Autoscaler JSON (for Cloud Run functions) or YAML (for GKE) configuration
+can be validated by running the command:
+
+```shell
+npm install
+npm run validate-config-file -- path/to/config_file
+```
 
 ### Required
 
@@ -76,7 +84,7 @@ instructions on how to change the payload.
 | `projectId`         | Project ID of the Cloud Spanner to be monitored by the Autoscaler |
 | `instanceId`        | Instance ID of the Cloud Spanner to be monitored by the Autoscaler |
 
-### Required for a Cloud Functions deployment
+### Required for a Cloud Run functions deployment
 
 | Key                 | Description |
 | ------------------- | ----------- |
@@ -216,8 +224,8 @@ If the value of `name` is `spanner`, the following values are required.
 | `instanceId`               | The instance id of Cloud Spanner which you want to manage the state. |
 | `databaseId`               | The database id of Cloud Spanner instance which you want to manage the state. |
 
-When using Cloud Spanner to manage the state,
-a table with the following DDL is created at runtime.
+When using Cloud Spanner to manage the state, a table with the following DDL is
+created at runtime.
 
 ```sql
 CREATE TABLE spannerAutoscaler (
@@ -225,10 +233,35 @@ CREATE TABLE spannerAutoscaler (
   lastScalingTimestamp TIMESTAMP,
   createdOn TIMESTAMP,
   updatedOn TIMESTAMP,
+  lastScalingCompleteTimestamp TIMESTAMP,
+  scalingOperationId STRING(MAX),
+  scalingRequestedSize INT64,
+  scalingMethod STRING(MAX),
+  scalingPreviousSize INT64,
 ) PRIMARY KEY (id)
 ```
 
-## Example configuration for Cloud Functions
+Note: If you are upgrading from v1.x, then you need to add the 5 new columns to
+the spanner schema using the following DDL statements
+
+```sql
+ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS lastScalingCompleteTimestamp TIMESTAMP;
+ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingOperationId STRING(MAX);
+ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingRequestedSize INT64;
+ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingMethod STRING(MAX);
+ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingPreviousSize INT64;
+```
+
+Note: If you are upgrading from V2.0.x, then you need to add the 3 new columns
+to the spanner schema using the following DDL statements
+
+```sql
+ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingRequestedSize INT64;
+ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingMethod STRING(MAX);
+ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingPreviousSize INT64;
+```
+
+## Example configuration for Cloud Run functions
 
 ```json
 [

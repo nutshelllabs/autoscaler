@@ -5,7 +5,8 @@
 
   <p align="center">
     <!-- In one sentence: what does the code in this directory do? -->
-    Set up the Autoscaler in Cloud Functions in a per-project deployment using Terraform
+    Set up the Autoscaler in Cloud Run functions in a per-project
+    deployment using Terraform
     <br />
     <a href="../../../README.md">Home</a>
     ·
@@ -19,7 +20,7 @@
     ·
     <a href="../README.md#Monitoring">Monitoring</a>
     <br />
-    Cloud Functions
+    Cloud Run functions
     ·
     <a href="../../gke/README.md">Google Kubernetes Engine</a>
     <br />
@@ -130,29 +131,33 @@ In this section you prepare your project for deployment.
     gcloud config set project "${PROJECT_ID}"
     ```
 
-4.  Choose the [region and zone][region-and-zone] and
+4.  Choose the [region][region-and-zone] and
     [App Engine Location][app-engine-location] where the Autoscaler
     infrastructure will be located.
 
     ```sh
     export REGION=us-central1
-    export ZONE=us-central1-c
     export APP_ENGINE_LOCATION=us-central
     ```
 
 5.  Enable the required Cloud APIs
 
     ```sh
-    gcloud services enable iam.googleapis.com \
-      cloudresourcemanager.googleapis.com \
+    gcloud services enable \
       appengine.googleapis.com \
-      firestore.googleapis.com \
-      spanner.googleapis.com \
-      pubsub.googleapis.com \
-      cloudfunctions.googleapis.com \
       cloudbuild.googleapis.com \
+      cloudfunctions.googleapis.com \
+      cloudresourcemanager.googleapis.com \
       cloudscheduler.googleapis.com \
-      cloudresourcemanager.googleapis.com
+      compute.googleapis.com \
+      eventarc.googleapis.com \
+      firestore.googleapis.com \
+      iam.googleapis.com \
+      logging.googleapis.com \
+      monitoring.googleapis.com \
+      pubsub.googleapis.com \
+      run.googleapis.com \
+      spanner.googleapis.com
     ```
 
 6.  Create a Google App Engine app, to enable the APIs
@@ -175,13 +180,12 @@ In this section you prepare your project for deployment.
 
 ## Deploying the Autoscaler
 
-1.  Set the project ID, region and zone in the corresponding Terraform
+1.  Set the project ID and region in the corresponding Terraform
     environment variables
 
     ```sh
     export TF_VAR_project_id="${PROJECT_ID}"
     export TF_VAR_region="${REGION}"
-    export TF_VAR_zone="${ZONE}"
     ```
 
 2.  If you want to create a new Spanner instance for testing the Autoscaler, set
@@ -234,11 +238,36 @@ In this section you prepare your project for deployment.
 
     ```sql
     CREATE TABLE spannerAutoscaler (
-       id STRING(MAX),
-       lastScalingTimestamp TIMESTAMP,
-       createdOn TIMESTAMP,
-       updatedOn TIMESTAMP,
+      id STRING(MAX),
+      lastScalingTimestamp TIMESTAMP,
+      createdOn TIMESTAMP,
+      updatedOn TIMESTAMP,
+      lastScalingCompleteTimestamp TIMESTAMP,
+      scalingOperationId STRING(MAX),
+      scalingRequestedSize INT64,
+      scalingMethod STRING(MAX),
+      scalingPreviousSize INT64,
     ) PRIMARY KEY (id)
+    ```
+
+    Note: If you are upgrading from v1.x, then you need to add the 5 new columns
+    to the spanner schema using the following DDL statements
+
+    ```sql
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS lastScalingCompleteTimestamp TIMESTAMP;
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingOperationId STRING(MAX);
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingRequestedSize INT64;
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingMethod STRING(MAX);
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingPreviousSize INT64;
+    ```
+
+    Note: If you are upgrading from V2.0.x, then you need to add the 3 new columns
+    to the spanner schema using the following DDL statements
+
+    ```sql
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingRequestedSize INT64;
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingMethod STRING(MAX);
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingPreviousSize INT64;
     ```
 
     For more information on how to make your existing Spanner instance to be
@@ -264,10 +293,10 @@ In this section you prepare your project for deployment.
     terraform apply -parallelism=2
     ```
 
-If you are running this command in Cloud Shell and encounter errors of the form
-"`Error: cannot assign requested address`", this is a
-[known issue][provider-issue] in the Terraform Google provider, please retry
-with -parallelism=1
+    If you are running this command in Cloud Shell and encounter errors of the form
+    "`Error: cannot assign requested address`", this is a
+    [known issue][provider-issue] in the Terraform Google provider, please retry
+    the command above and include the flag `-parallelism=1`.
 
 ## Importing your Spanner instances
 
@@ -278,10 +307,11 @@ in this section.
 1.  List your spanner instances
 
     ```sh
-    gcloud spanner instances list
+    gcloud spanner instances list --format="table(name)"
     ```
 
-2.  Set the following variable with the instance name to import
+2.  Set the following variable with the instance name from the output of the
+    above command that you want to import
 
     ```sh
     SPANNER_INSTANCE_NAME=<YOUR_SPANNER_INSTANCE_NAME>

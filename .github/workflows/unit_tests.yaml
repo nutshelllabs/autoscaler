@@ -17,8 +17,7 @@ name: Node.js unit tests
 #on: [push, pull_request]
 
 jobs:
-  test-poller:
-
+  unit-tests:
     runs-on: ubuntu-latest
 
     defaults:
@@ -27,38 +26,20 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [16.x, 18.x]
+        node-version: [20.x, 22.x]
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v1
-      with:
-        node-version: ${{ matrix.node-version }}
-    - run: npm install
-    - run: npm test
-      env:
-        CI: true
+      - uses: actions/checkout@v4
 
-  test-scaler:
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
 
-    runs-on: ubuntu-latest
+      - name: npm install
+        run: npm install
 
-    defaults:
-      run:
-        working-directory: src/scaler/scaler-core
-
-    strategy:
-      matrix:
-        node-version: [16.x, 18.x]
-
-    steps:
-    - uses: actions/checkout@v2
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v1
-      with:
-        node-version: ${{ matrix.node-version }}
-    - run: npm install
-    - run: npm test
-      env:
-        CI: true
+      - name: Unit tests
+        run: npm test
+        env:
+          CI: true

@@ -13,14 +13,18 @@
  * limitations under the License
  */
 
-const express    = require('express')
-const scalerCore = require('scaler-core');
+const express = require('express');
+const scalerCore = require('./scaler-core');
+const {logger} = require('../autoscaler-common/logger');
+const {version: packageVersion} = require('../../package.json');
 
+/**
+ * Entrypoint for GKE Scaler HTTP service.
+ */
 function main() {
+  logger.info(`Autoscaler Scaler v${packageVersion} service started`);
 
-  scalerCore.log(`Autoscaler Scaler started`, {severity: 'INFO'});
-
-  const app  = express();
+  const app = express();
   const port = process.env.PORT || 3000;
 
   app.use(express.json());
@@ -36,8 +40,13 @@ function main() {
 
     app.listen(port);
   } catch (err) {
-    scalerCore.log('Error in Scaler wrapper:', {severity: 'ERROR', payload: err});
+    logger.error({
+      message: 'Error startting Scaler: ${err}',
+      err: err,
+    });
   }
 }
 
-main();
+module.exports = {
+  main,
+};

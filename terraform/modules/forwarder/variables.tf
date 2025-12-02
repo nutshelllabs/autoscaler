@@ -19,8 +19,12 @@ variable "project_id" {
 }
 
 variable "region" {
+  type = string
+}
+
+variable "nodejs_version" {
   type    = string
-  default = "us-central1"
+  default = "20"
 }
 
 variable "local_output_path" {

@@ -63,7 +63,11 @@ resource "google_project_iam_custom_role" "metrics_viewer_iam_role" {
   role_id     = "spannerAutoscalerMetricsViewer_${random_id.role_suffix.hex}"
   title       = "Spanner Autoscaler Metrics Viewer Role"
   description = "Allows a principal to get Spanner instances and view time series metrics"
-  permissions = ["spanner.instances.get", "monitoring.timeSeries.list"]
+  permissions = [
+    "monitoring.timeSeries.list",
+    "spanner.databases.list",
+    "spanner.instances.get",
+  ]
 }
 
 # Allows Poller to to get Spanner instances and view time series metrics
@@ -79,7 +83,10 @@ resource "google_project_iam_custom_role" "capacity_manager_iam_role" {
   role_id     = "spannerAutoscalerCapacityManager_${random_id.role_suffix.hex}"
   title       = "Spanner Autoscaler Capacity Manager Role"
   description = "Allows a principal to scale spanner instances"
-  permissions = ["spanner.instanceOperations.get", "spanner.instances.update"]
+  permissions = [
+    "spanner.instanceOperations.get",
+    "spanner.instances.update"
+  ]
 }
 
 # Allows scaler to modify the capacity (nodes or PUs) of the Spanner instance
@@ -92,7 +99,7 @@ resource "google_spanner_instance_iam_member" "scaler_update_capacity_iam" {
   depends_on = [google_spanner_instance.main]
 }
 
-## - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  
+## - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ## If Terraform must create an instance to store the state of the Autoscaler
 ##
 resource "google_spanner_instance" "state_instance" {
@@ -118,6 +125,11 @@ resource "google_spanner_database" "state-database" {
       lastScalingTimestamp TIMESTAMP,
       createdOn TIMESTAMP,
       updatedOn TIMESTAMP,
+      lastScalingCompleteTimestamp TIMESTAMP,
+      scalingOperationId STRING(MAX),
+      scalingRequestedSize INT64,
+      scalingMethod STRING(MAX),
+      scalingPreviousSize INT64,
     ) PRIMARY KEY (id)
     EOT
   ]

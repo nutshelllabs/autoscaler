@@ -19,7 +19,7 @@
     ·
     <a href="../README.md#Monitoring">Monitoring</a>
     <br />
-    <a href="../cloud-functions/README.md">Cloud Functions</a>
+    <a href="../cloud-functions/README.md">Cloud Run functions</a>
     ·
     Google Kubernetes Engine
   </p>
@@ -30,9 +30,12 @@
 
 *   [Table of Contents](#table-of-contents)
 *   [Overview](#overview)
-*   [Architecture](#architecture)
     *   [Pros](#pros)
     *   [Cons](#cons)
+*   [Options for GKE deployment](#options-for-gke-deployment)
+*   [Architecture](#architecture)
+    *   [Decoupled Model](#decoupled-model)
+    *   [Unified Model](#unified-model)
 *   [Before you begin](#before-you-begin)
 *   [Preparing the Autoscaler Project](#preparing-the-autoscaler-project)
     *   [Using Firestore for Autoscaler state](#using-firestore-for-autoscaler-state)
@@ -43,6 +46,7 @@
     *   [Building the Autoscaler for a unified deployment model](#building-the-autoscaler-for-a-unified-deployment-model)
     *   [Building the Autoscaler for a decoupled deployment model](#building-the-autoscaler-for-a-decoupled-deployment-model)
 *   [Deploying the Autoscaler](#deploying-the-autoscaler)
+*   [Metrics in GKE deployment](#metrics-in-gke-deployment)
 *   [Troubleshooting](#troubleshooting)
 
 ## Overview
@@ -51,22 +55,67 @@ This directory contains Terraform configuration files to quickly set up the
 infrastructure for your Autoscaler for a deployment to
 [Google Kubernetes Engine (GKE)][gke].
 
-In this deployment option, all the components of the Autoscaler reside in the
-same project as your [Spanner][spanner] instances. A future enhancement may
-enable the autoscaler to operate cross-project when running in GKE.
-
 This deployment is ideal for independent teams who want to self-manage the
 infrastructure and configuration of their own Autoscalers on Kubernetes.
 
+The GKE deployment has the following pros and cons:
+
+### Pros
+
+*   **Kubernetes-based**: For teams that may not be able to use Google Cloud
+    services such as [Cloud Run functions][cloud-functions], this design enables
+    the use of the Autoscaler.
+*   **Configuration**: The control over scheduler parameters belongs to the team
+    that owns the Spanner instance, therefore the team has the highest degree of
+    freedom to adapt the Autoscaler to its needs.
+*   **Infrastructure**: This design establishes a clear boundary of
+    responsibility and security over the Autoscaler infrastructure because the
+    team owner of the Spanner instances is also the owner of the Autoscaler
+    infrastructure.
+
+### Cons
+
+*   **Infrastructure**: In contrast to the [Cloud Run functions][cloud-functions]
+    design, some long-lived infrastructure and services are required.
+*   **Maintenance**: with each team being responsible for the Autoscaler
+    configuration and infrastructure it may become difficult to make sure that
+    all Autoscalers across the company follow the same update guidelines.
+*   **Audit**: because of the high level of control by each team, a centralized
+    audit may become more complex.
+
+## Options for GKE deployment
+
+For deployment to GKE there are two options to choose from:
+
+1.  Deployment of decoupled Poller and Scaler components, running in separate pods.
+
+2.  Deployment of a unified Autoscaler, with Poller and Scaler components
+    combined.
+
+The decoupled deployment model has the advantage that Poller and Scaler
+components can be assigned individual permissions (i.e. run as separate service
+accounts), and the two components can be managed and scaled as required to suit
+your needs. However, this deployment model relies on the Scaler component being
+deployed as a long-running service, which consumes resources.
+
+In contrast, the unified deployment model has the advantage that the Poller and
+Scaler components can be deployed as a single pod, which runs as a Kubernetes
+cron job. This means there are no long-running components. As well as this,
+with Poller and Scaler components combined, only a single service account is
+required.
+
+For most use cases, the unified deployment model is recommended.
+
 ## Architecture
 
-![architecture-gke][architecture-gke]
+### Decoupled Model
+
+![architecture-gke-decoupled][architecture-gke-decoupled]
 
 1.  Using a [Kubernetes ConfigMap][kubernetes-configmap] you define which
-    Spanner instances you would like to be managed by the autoscaler. Currently
-    these must be in the same project as the cluster that runs the autoscaler.
+    Spanner instances you would like to be managed by the Autoscaler.
 
-2.  Using a [Kubernetes CronJob][kubernetes-cronjob], the autoscaler is
+2.  Using a [Kubernetes CronJob][kubernetes-cronjob], the Autoscaler is
     configured to run on a schedule. By default this is every two minutes,
     though this is configurable.
 
@@ -93,53 +142,50 @@ infrastructure and configuration of their own Autoscalers on Kubernetes.
 8.  If the configured cooldown period has passed, then the Scaler requests the
     Spanner Instance to scale out or in.
 
-The GKE deployment has the following pros and cons:
+9.  Both Poller and Scaler publish counters to an [OpenTelemetry Collector][otel-collector],
+    also running in Kubernetes, which is configured to forward these counters to
+    [Google Cloud Monitoring][gcm-docs]. See section
+    [Metrics in GKE deployment](#metrics-in-gke-deployment)
 
-### Pros
+### Unified Model
 
-*   **Kubernetes-based**: For teams that may not be able to use Google Cloud
-    services such as [Cloud Functions][cloud-functions], this design enables
-    the use of the autoscaler.
-*   **Configuration**: The control over scheduler parameters belongs to the team
-    that owns the Spanner instance, therefore the team has the highest degree of
-    freedom to adapt the Autoscaler to its needs.
-*   **Infrastructure**: This design establishes a clear boundary of
-    responsibility and security over the Autoscaler infrastructure because the
-    team owner of the Spanner instances is also the owner of the Autoscaler
-    infrastructure.
+![architecture-gke-unified][architecture-gke-unified]
 
-### Cons
+1.  Using a [Kubernetes ConfigMap][kubernetes-configmap] you define which
+    Spanner instances you would like to be managed by the Autoscaler.
 
-*   **Infrastructure**: In contrast to the [Cloud Functions][cloud-functions]
-    design, some long-lived infrastructure and services are required.
-*   **Maintenance**: with each team being responsible for the Autoscaler
-    configuration and infrastructure it may become difficult to make sure that
-    all Autoscalers across the company follow the same update guidelines.
-*   **Audit**: because of the high level of control by each team, a centralized
-    audit may become more complex.
+2.  Using a [Kubernetes CronJob][kubernetes-cronjob], the Autoscaler is
+    configured to run on a schedule. By default this is every two minutes,
+    though this is configurable.
 
-## Further options for GKE deployment
+3.  When scheduled, an instance of the unified [Poller][autoscaler-poller] and
+    [Scaler][autoscaler-scaler] components (henceforth "Autoscaler") is created
+    as a [Kubernetes Job][kubernetes-job].
 
-For deployment to GKE there are two further options to choose from:
+4.  The Autoscaler queries the [Cloud Monitoring][cloud-monitoring] API to retrieve
+    the utilization metrics for each Spanner instance.
 
-1.  Deployment of decoupled Poller and Scaler components, running in separate pods.
+5.  For each Spanner instance, the Autoscaler makes an internal call with a
+    payload that contains the utilization metrics for the specific
+    Spanner instance, and some of its corresponding configuration parameters.
 
-2.  Deployment of a unified Autoscaler, with Poller and Scaler components
-    combined.
+6.  Using the chosen [scaling method][scaling-methods]
+    the Autoscaler compares the Spanner instance metrics against the recommended
+    thresholds, plus or minus an [allowed margin][margins] and determines
+    if the instance should be scaled, and the number of nodes or processing units
+    that it should be scaled to.
 
-The decoupled deployment model has the advantage that Poller and Scaler
-components can be assigned individual permissions (i.e. run as separate service
-accounts), and the two components can be managed and scaled as required to suit
-your needs. However, this deployment model relies on the Scaler component being
-deployed as a long-running service, which consumes resources.
+7.  The Autoscaler retrieves the time when the instance was last scaled from the
+    state data stored in [Cloud Firestore][cloud-firestore] (or alternatively
+    [Spanner][spanner]) and compares it with the current time.
 
-In contrast, the unified deployment model has the advantage that the Poller and
-Scaler components can be deployed as a single pod, which runs as a Kubernetes
-cron job. This means there are no long-running components. As well as this,
-with Poller and Scaler components combined, only a single service account is
-required.
+8.  If the configured cooldown period has passed, then the Autoscaler requests the
+    Spanner Instance to scale out or in.
 
-For most use cases, the unified deployment model is recommended.
+9.  The Autoscaler publishes counters to an [OpenTelemetry Collector][otel-collector],
+    also running in Kubernetes, which is configured to forward these counters to
+    [Google Cloud Monitoring][gcm-docs]. See section
+    [Metrics in GKE deployment](#metrics-in-gke-deployment)
 
 ## Before you begin
 
@@ -218,6 +264,8 @@ In this section you prepare your project for deployment.
       cloudbuild.googleapis.com \
       cloudresourcemanager.googleapis.com \
       container.googleapis.com \
+      logging.googleapis.com \
+      monitoring.googleapis.com \
       spanner.googleapis.com
     ```
 
@@ -319,11 +367,36 @@ In this section you prepare your project for deployment.
 
     ```sql
     CREATE TABLE spannerAutoscaler (
-       id STRING(MAX),
-       lastScalingTimestamp TIMESTAMP,
-       createdOn TIMESTAMP,
-       updatedOn TIMESTAMP,
+      id STRING(MAX),
+      lastScalingTimestamp TIMESTAMP,
+      createdOn TIMESTAMP,
+      updatedOn TIMESTAMP,
+      lastScalingCompleteTimestamp TIMESTAMP,
+      scalingOperationId STRING(MAX),
+      scalingRequestedSize INT64,
+      scalingMethod STRING(MAX),
+      scalingPreviousSize INT64,
     ) PRIMARY KEY (id)
+    ```
+
+    Note: If you are upgrading from v1.x, then you need to add the 5 new columns
+    to the spanner schema using the following DDL statements
+
+    ```sql
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS lastScalingCompleteTimestamp TIMESTAMP;
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingOperationId STRING(MAX);
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingRequestedSize INT64;
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingMethod STRING(MAX);
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingPreviousSize INT64;
+    ```
+
+    Note: If you are upgrading from V2.0.x, then you need to add the 3 new columns
+    to the spanner schema using the following DDL statements
+
+    ```sql
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingRequestedSize INT64;
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingMethod STRING(MAX);
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingPreviousSize INT64;
     ```
 
 2.  Next, continue to [Creating Autoscaler infrastructure](#creating-autoscaler-infrastructure).
@@ -368,10 +441,11 @@ in this section.
 1.  List your spanner instances
 
     ```sh
-    gcloud spanner instances list
+    gcloud spanner instances list --format="table(name)"
     ```
 
-2.  Set the following variable with the instance name to import
+2.  Set the following variable with the instance name from the output of the
+    above command that you want to import
 
     ```sh
     SPANNER_INSTANCE_NAME=<YOUR_SPANNER_INSTANCE_NAME>
@@ -411,14 +485,14 @@ similar process.
 1.  Change to the directory that contains the Autoscaler source code:
 
     ```sh
-    cd ${AUTOSCALER_ROOT}/src
+    cd ${AUTOSCALER_ROOT}
     ```
 
 2.  Build the Autoscaler components by following the instructions in the
     appropriate section:
 
-    *   [Building the Autoscaler for a unified deployment model] (#building-the-autoscaler-for-a-unified-deployment-model)
-    *   [Building the Autoscaler for a decoupled deployment model] (#building-the-autoscaler-for-a-decoupled-deployment-model)
+    *   [Building the Autoscaler for a unified deployment model](#building-the-autoscaler-for-a-unified-deployment-model)
+    *   [Building the Autoscaler for a decoupled deployment model](#building-the-autoscaler-for-a-decoupled-deployment-model)
 
 ### Building the Autoscaler for a unified deployment model
 
@@ -428,7 +502,7 @@ following commands:
 1.  Build the Autoscaler:
 
     ```sh
-    gcloud builds submit . --config=cloudbuild.yaml --region=${REGION}
+    gcloud beta builds submit . --config=cloudbuild-unified.yaml --region=${REGION} --service-account="projects/${PROJECT_ID}/serviceAccounts/build-sa@${PROJECT_ID}.iam.gserviceaccount.com"
     ```
 
 2.  Construct the path to the image:
@@ -460,8 +534,8 @@ following commands:
 1.  Build the Autoscaler components:
 
     ```sh
-    gcloud builds submit poller --config=poller/cloudbuild.yaml --region=${REGION} && \
-    gcloud builds submit scaler --config=scaler/cloudbuild.yaml --region=${REGION}
+    gcloud beta builds submit . --config=cloudbuild-poller.yaml --region=${REGION} --service-account="projects/${PROJECT_ID}/serviceAccounts/build-sa@${PROJECT_ID}.iam.gserviceaccount.com" && \
+    gcloud beta builds submit . --config=cloudbuild-scaler.yaml --region=${REGION} --service-account="projects/${PROJECT_ID}/serviceAccounts/build-sa@${PROJECT_ID}.iam.gserviceaccount.com"
     ```
 
 2.  Construct the paths to the images:
@@ -496,32 +570,43 @@ Next, follow the instructions in the
     gcloud container clusters get-credentials spanner-autoscaler --region=${REGION}
     ```
 
-2.  Next, to configure the Kubernetes manifests and deploy the Autoscaler to
-    the cluster, run the following commands:
+2.  Prepare the Autoscaler configuration files by running the following command:
 
     ```sh
     cd ${AUTOSCALER_ROOT}/kubernetes/${AUTOSCALER_DEPLOYMENT_MODEL} && \
-    kpt fn eval --image gcr.io/kpt-fn/apply-setters:v0.1.1 autoscaler-pkg -- poller_image=${POLLER_IMAGE} scaler_image=${SCALER_IMAGE} && \
-    kubectl apply -f autoscaler-pkg/ --recursive
-    ```
-
-3.  To prepare to configure the Autoscaler, run the following command:
-
-    ```sh
     for template in $(ls autoscaler-config/*.template) ; do envsubst < ${template} > ${template%.*} ; done
     ```
 
-4.  Next, to see how the Autoscaler is configured, run the following command to
+3.  Deploy the `otel-collector` service so that it is ready to collect metrics:
+
+    ```sh
+    cd ${AUTOSCALER_ROOT}/kubernetes/${AUTOSCALER_DEPLOYMENT_MODEL} && \
+    kubectl apply -f autoscaler-config/otel-collector.yaml && \
+    kubectl apply -f autoscaler-pkg/networkpolicy.yaml && \
+    kubectl apply -f autoscaler-pkg/otel-collector/otel-collector.yaml
+    ```
+
+4.  Next configure the Kubernetes manifests and deploy the Autoscaler to
+    the clusterusing the following commands:
+
+    ```sh
+    cd ${AUTOSCALER_ROOT}/kubernetes/${AUTOSCALER_DEPLOYMENT_MODEL} && \
+    kpt fn eval --image gcr.io/kpt-fn/apply-setters:v0.1.1 autoscaler-pkg -- \
+        poller_image=${POLLER_IMAGE} scaler_image=${SCALER_IMAGE} && \
+    kubectl apply -f autoscaler-pkg/ --recursive
+    ```
+
+5.  Next, to see how the Autoscaler is configured, run the following command to
     output the example configuration:
 
     ```sh
     cat autoscaler-config/autoscaler-config*.yaml
     ```
 
-    These two files configure each instance of the autoscaler that you
+    These two files configure each instance of the Autoscaler that you
     scheduled in the previous step. Notice the environment variable
     `AUTOSCALER_CONFIG`. You can use this variable to reference a configuration
-    that will be used by that individual instance of the autoscaler. This means
+    that will be used by that individual instance of the Autoscaler. This means
     that you can configure multiple scaling schedules across multiple Spanner
     instances.
 
@@ -539,7 +624,7 @@ Next, follow the instructions in the
     to directly scale the Spanner instance every hour. When you configure the
     Autoscaler for production, you can configure this schedule to fit your needs.
 
-5.  If you have chosen to use Firestore to hold the Autoscaler state as described
+6.  If you have chosen to use Firestore to hold the Autoscaler state as described
     above, edit the above files, and remove the following lines:
 
     ```yaml
@@ -557,18 +642,48 @@ Next, follow the instructions in the
     If you have chosen to use your own Spanner instance, please edit the above
     configuration files accordingly.
 
-6.  To configure the Autoscaler and begin scaling operations, run the following
+7.  To configure the Autoscaler and begin scaling operations, run the following
      command:
 
      ```sh
      kubectl apply -f autoscaler-config/
      ```
 
-7.  Any changes made to the configuration files and applied with `kubectl
+8.  Any changes made to the configuration files and applied with `kubectl
      apply` will update the Autoscaler configuration.
 
-8.  You can view logs for the Autoscaler components via `kubectl` or the [Cloud
+9.  You can view logs for the Autoscaler components via `kubectl` or the [Cloud
      Logging][cloud-console-logging] interface in the Google Cloud console.
+
+## Metrics in GKE deployment
+
+Unlike in a Cloud Run functions deployment, in a GKE deployment, the counters
+generated by the `poller` and `scaler` components are forwarded to the
+[OpenTelemetry Collector (`otel-collector`)][otel-collector] service.
+This service is specified by an the environmental variable `OTEL_COLLECTOR_URL`
+passed to the poller and scaler workloads.
+
+This collector is run as a [service](../../kubernetes/decoupled/autoscaler-pkg/otel-collector/otel-collector.yaml)
+to receive metrics as gRPC messages on port 4317, then export them to Google
+Cloud Monitoring. This configuration is defined in a [ConfigMap](../../kubernetes/decoupled/autoscaler-config/otel-collector.yaml.template).
+
+Metrics can be sent to other exporters by modifying the Collector ConfigMap.
+
+A [NetworkPolicy rule](../../kubernetes/decoupled/autoscaler-pkg/networkpolicy.yaml)
+is also configured to allow traffic from the `poller` and `scaler` workloads
+(labelled with `otel-submitter:true`) to the `otel-collector` service.
+
+If the environment variable `OTEL_COLLECTOR_URL` is not specified, the metrics
+will be sent directly to Google Cloud Monitoring.
+
+To allow Google Cloud Monitoring to distinguish metrics from different instances
+of the poller and scaler, the Kubernetes Pod name is passed to the poller and
+scaler componnents via the environmental variable `K8S_POD_NAME`. If this
+variable is not specified, and if the Pod name attribute is not appended to the
+metrics by configuring the
+[Kubernetes Attributes Processor](https://opentelemetry.io/docs/kubernetes/collector/components/#kubernetes-attributes-processor)
+in the OpenTelemetry Collector, then there will be Send TimeSeries errors
+reported when the Collector exports the metrics to GCM.
 
 ## Troubleshooting
 
@@ -622,14 +737,25 @@ following the instructions above.
     cat ${AUTOSCALER_ROOT}/autoscaler-config/autoscaler-config.yaml
     ```
 
+3.  Validate the contents of the YAML configuraration file:
+
+    ```sh
+    npm install
+    npm run validate-config-file -- ${AUTOSCALER_ROOT}/autoscaler-config/autoscaler-config.yaml
+    ```
+
 <!-- LINKS: https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-[architecture-gke]: ../../resources/architecture-gke.png
+[architecture-gke-decoupled]: ../../resources/architecture-gke-decoupled.png
+[architecture-gke-unified]: ../../resources/architecture-gke-unified.png
 [autoscaler-poller]: ../../src/poller/README.md
-[autoscaler-config-params]: ../../src/poller/#configuration-parameters
+[autoscaler-scaler]: ../../src/scaler/README.md
+[autoscaler-config-params]: ../../src/poller/README.md#configuration-parameters
 [cron-frequent]: ../../kubernetes/decoupled/autoscaler-pkg/poller/poller.yaml
 [cron-hourly]: ../../kubernetes/decoupled/autoscaler-pkg/poller/poller-hourly.yaml
 [margins]: ../../src/poller/README.md#margins
 [scaling-methods]: ../../src/scaler/README.md#scaling-methods
+[otel-collector]: https://opentelemetry.io/docs/collector/
+[gcm-docs]: https://cloud.google.com/monitoring/docs
 
 <!-- GKE deployment architecture -->
 [gke]: https://cloud.google.com/kubernetes-engine

@@ -16,14 +16,19 @@
 
 terraform {
   provider_meta "google" {
-    module_name = "cloud-solutions/spanner-autoscaler-deploy-cf-v1.0"
+    module_name = "cloud-solutions/spanner-autoscaler-deploy-cf-v4.0.0" // x-release-please-version
   }
+}
+
+data "google_project" "project" {
+
 }
 
 // PubSub
 
 resource "google_pubsub_topic" "poller_topic" {
-  name = "poller-topic"
+  project = var.project_id
+  name    = "poller-topic"
 }
 
 resource "google_pubsub_topic_iam_member" "poller_pubsub_sub_iam" {
@@ -43,7 +48,8 @@ resource "google_pubsub_topic_iam_member" "forwarder_pubsub_pub_iam" {
 }
 
 resource "google_pubsub_topic" "scaler_topic" {
-  name = "scaler-topic"
+  project = var.project_id
+  name    = "scaler-topic"
 }
 
 resource "google_pubsub_topic_iam_member" "poller_pubsub_pub_iam" {
@@ -69,9 +75,10 @@ resource "google_project_iam_member" "dataflow_iam" {
   member  = "serviceAccount:${var.poller_sa_email}"
 }
 
-// Cloud Functions
+// Cloud Run functions
 
 resource "google_storage_bucket" "bucket_gcf_source" {
+  project                     = var.project_id
   name                        = "${var.project_id}-gcf-source"
   storage_class               = "REGIONAL"
   location                    = var.region
@@ -79,68 +86,107 @@ resource "google_storage_bucket" "bucket_gcf_source" {
   uniform_bucket_level_access = var.uniform_bucket_level_access
 }
 
-data "archive_file" "local_poller_source" {
+data "archive_file" "local_source" {
   type        = "zip"
-  source_dir  = abspath("${path.module}/../../../src/poller/poller-core")
-  output_path = "${var.local_output_path}/poller.zip"
+  source_dir  = abspath("${path.module}/../../..")
+  output_path = "${var.local_output_path}/src.zip"
+  excludes = [
+    ".git",
+    ".github",
+    ".nyc_output",
+    ".vscode",
+    "kubernetes",
+    "node_modules",
+    "resources",
+    "scaler",
+    "terraform"
+  ]
 }
 
-resource "google_storage_bucket_object" "gcs_functions_poller_source" {
-  name   = "poller.${data.archive_file.local_poller_source.output_md5}.zip"
+resource "google_storage_bucket_object" "gcs_functions_source" {
+  name   = "src.${data.archive_file.local_source.output_md5}.zip"
   bucket = google_storage_bucket.bucket_gcf_source.name
-  source = data.archive_file.local_poller_source.output_path
+  source = data.archive_file.local_source.output_path
 }
 
-data "archive_file" "local_scaler_source" {
-  type        = "zip"
-  source_dir  = abspath("${path.module}/../../../src/scaler/scaler-core")
-  output_path = "${var.local_output_path}/scaler.zip"
-}
+resource "google_cloudfunctions2_function" "poller_function" {
+  name     = "tf-poller-function"
+  project  = var.project_id
+  location = var.region
 
-resource "google_storage_bucket_object" "gcs_functions_scaler_source" {
-  name   = "scaler.${data.archive_file.local_scaler_source.output_md5}.zip"
-  bucket = google_storage_bucket.bucket_gcf_source.name
-  source = data.archive_file.local_scaler_source.output_path
-}
+  build_config {
+    runtime     = "nodejs${var.nodejs_version}"
+    entry_point = "checkSpannerScaleMetricsPubSub"
+    source {
+      storage_source {
+        bucket = google_storage_bucket.bucket_gcf_source.name
+        object = google_storage_bucket_object.gcs_functions_source.name
+      }
+    }
+    service_account = var.build_sa_id
+  }
 
-resource "google_cloudfunctions_function" "poller_function" {
-  name                = "tf-poller-function"
-  project             = var.project_id
-  region              = var.region
-  ingress_settings    = "ALLOW_INTERNAL_AND_GCLB"
-  available_memory_mb = "512"
-  entry_point         = "checkSpannerScaleMetricsPubSub"
-  runtime             = "nodejs${var.nodejs_version}"
+  service_config {
+    max_instance_count    = var.poller_max_instance_count
+    available_memory      = "512M"
+    available_cpu         = var.poller_function_available_cpu
+    ingress_settings      = "ALLOW_INTERNAL_AND_GCLB"
+    service_account_email = var.poller_sa_email
+  }
+
   event_trigger {
-    event_type = "google.pubsub.topic.publish"
-    resource   = google_pubsub_topic.poller_topic.id
-  }
-  source_archive_bucket = google_storage_bucket.bucket_gcf_source.name
-  source_archive_object = google_storage_bucket_object.gcs_functions_poller_source.name
-  service_account_email = var.poller_sa_email
-
-  lifecycle {
-    ignore_changes = [max_instances]
+    event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic          = google_pubsub_topic.poller_topic.id
+    retry_policy          = "RETRY_POLICY_RETRY"
+    service_account_email = var.poller_sa_email
   }
 }
 
-resource "google_cloudfunctions_function" "scaler_function" {
-  name                = "tf-scaler-function"
-  project             = var.project_id
-  region              = var.region
-  ingress_settings    = "ALLOW_INTERNAL_AND_GCLB"
-  available_memory_mb = "512"
-  entry_point         = "scaleSpannerInstancePubSub"
-  runtime             = "nodejs${var.nodejs_version}"
-  event_trigger {
-    event_type = "google.pubsub.topic.publish"
-    resource   = google_pubsub_topic.scaler_topic.id
-  }
-  source_archive_bucket = google_storage_bucket.bucket_gcf_source.name
-  source_archive_object = google_storage_bucket_object.gcs_functions_scaler_source.name
-  service_account_email = var.scaler_sa_email
+resource "google_cloudfunctions2_function" "scaler_function" {
+  name     = "tf-scaler-function"
+  project  = var.project_id
+  location = var.region
 
-  lifecycle {
-    ignore_changes = [max_instances]
+  build_config {
+    runtime     = "nodejs${var.nodejs_version}"
+    entry_point = "scaleSpannerInstancePubSub"
+    source {
+      storage_source {
+        bucket = google_storage_bucket.bucket_gcf_source.name
+        object = google_storage_bucket_object.gcs_functions_source.name
+      }
+    }
+    service_account = var.build_sa_id
   }
+
+  service_config {
+    max_instance_count    = var.scaler_max_instance_count
+    available_memory      = "512M"
+    available_cpu         = var.scaler_function_available_cpu
+    ingress_settings      = "ALLOW_INTERNAL_AND_GCLB"
+    service_account_email = var.scaler_sa_email
+  }
+
+  event_trigger {
+    event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic          = google_pubsub_topic.scaler_topic.id
+    retry_policy          = "RETRY_POLICY_RETRY"
+    service_account_email = var.scaler_sa_email
+  }
+}
+
+resource "google_cloud_run_service_iam_member" "cloud_run_poller_invoker" {
+  project  = google_cloudfunctions2_function.poller_function.project
+  location = google_cloudfunctions2_function.poller_function.location
+  service  = google_cloudfunctions2_function.poller_function.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${var.poller_sa_email}"
+}
+
+resource "google_cloud_run_service_iam_member" "cloud_run_scaler_invoker" {
+  project  = google_cloudfunctions2_function.scaler_function.project
+  location = google_cloudfunctions2_function.scaler_function.location
+  service  = google_cloudfunctions2_function.scaler_function.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${var.scaler_sa_email}"
 }

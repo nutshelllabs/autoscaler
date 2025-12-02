@@ -19,7 +19,7 @@
     ·
     <a href="../../README.md#Monitoring">Monitoring</a>
     <br />
-    <a href="../../cloud-functions/README.md">Cloud Functions</a>
+    <a href="../../cloud-functions/README.md">Cloud Run functions</a>
     ·
     Google Kubernetes Engine
   </p>
@@ -32,6 +32,6 @@ This directory contains Terraform configuration files to quickly set
 up the infrastructure for your Autoscaler for a unified deployment to
 [Google Kubernetes Engine (GKE)][gke].
 
-Please see the documentation [here](../README.md).
+Please see the [documentation](../README.md).
 
 [gke]: https://cloud.google.com/kubernetes-engine

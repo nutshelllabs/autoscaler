@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"testing"
 	"time"
 
@@ -64,7 +63,7 @@ func setAutoscalerConfigMinProcessingUnits(t *testing.T, schedulerClient *schedu
 		t.Fatal()
 	}
 
-	schedulerJobBody[0]["minSize"] = strconv.Itoa(units)
+	schedulerJobBody[0]["minSize"] = units
 	schedulerJobBodyUpdate, err := json.Marshal(schedulerJobBody)
 	if err != nil {
 		logger.Log(t, err)
@@ -107,7 +106,9 @@ func waitForSpannerProcessingUnits(t *testing.T, instanceAdmin *instance.Instanc
 				Name: instanceId,
 			}
 			spannerInstance, err := instanceAdmin.GetInstance(ctx, spannerInstanceReq)
-			assert.Nil(t, err)
+			if err != nil {
+				return "", err
+			}
 			assert.NotNil(t, spannerInstance)
 			processingUnits := spannerInstance.GetProcessingUnits()
 			if processingUnits != targetProcessingUnits {
@@ -145,10 +146,12 @@ func TestPerProjectEndToEndDeployment(t *testing.T) {
 			TerraformDir: terraformDir,
 			Vars: map[string]interface{}{
 				"project_id":                    config.ProjectId,
+				"region":                        "us-central1",
 				"spanner_name":                  spannerName,
 				"terraform_spanner_test":        true,
 				"spanner_test_processing_units": spannerTestProcessingUnits,
 			},
+			NoColor: true,
 		}
 
 		test_structure.SaveTerraformOptions(t, terraformDir, terraformOptions)
@@ -190,6 +193,7 @@ func TestPerProjectEndToEndDeployment(t *testing.T) {
 
 		// Wait up to a minute for Spanner to report initial processing units
 		spannerInstanceId := fmt.Sprintf("projects/%s/instances/%s", config.ProjectId, spannerName)
+		logger.Log(t, fmt.Sprintf("Using instance ID: %s", spannerInstanceId))
 		waitForSpannerProcessingUnits(t, instanceAdmin, spannerInstanceId, spannerTestProcessingUnits, 6, time.Second*10)
 
 		// Update the autoscaler config with a new minimum number of processing units

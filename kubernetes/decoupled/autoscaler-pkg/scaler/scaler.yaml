@@ -19,6 +19,7 @@ metadata:
   namespace: spanner-autoscaler # kpt-set: ${namespace}
   labels:
     app: scaler
+    otel-submitter: "true"
 spec:
   replicas: 3
   selector:
@@ -28,18 +29,35 @@ spec:
     metadata:
       labels:
         app: scaler
+        otel-submitter: "true"
     spec:
       containers:
-      - name: scaler
-        image: scaler-image # kpt-set: ${scaler_image}
-        ports:
-        - containerPort: 3000
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
+        - name: scaler
+          image: scaler-image # kpt-set: ${scaler_image}
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+          env:
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_COLLECTOR_URL
+              value: "http://otel-collector:4317/"
+            - name: OTEL_IS_LONG_RUNNING_PROCESS
+              value: "true"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - all
       nodeSelector:
         iam.gke.io/gke-metadata-server-enabled: "true"
       serviceAccountName: scaler-sa
