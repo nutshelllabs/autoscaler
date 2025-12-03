@@ -1,0 +1,78 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:recommended",
+    ":semanticCommits",
+    ":semanticCommitTypeAll(fix)",
+    ":enableVulnerabilityAlertsWithLabel(security)",
+  ],
+  ignorePaths: [
+    // override default ingorePaths which would ignore files in test directories
+    "**/node_modules/**",
+    "**/bower_components/**",
+  ],
+  packageRules: [
+    {
+      description: "Do not create PRs for nodejs/npm engine updates",
+      matchPackageNames: ["node", "npm"],
+      matchDepTypes: ["engines"],
+      dependencyDashboardApproval: true,
+      groupName: "npm-engine-versions",
+    },
+    {
+      description: "Group minor/patch updates for all NPM packages except googleapis",
+      matchDatasources: ["npm"],
+      matchUpdateTypes: ["minor", "patch"],
+      groupName: "npm-packages",
+      matchPackageNames: ["!googleapis", "!npm", "!node", "!@opentelemetry/**"],
+    },
+    {
+      description: "Allow all update types for googleapis",
+      matchDatasources: ["npm"],
+      matchPackageNames: ["googleapis"],
+      groupName: "npm-packages",
+    },
+    {
+      description: "Group for non-googleapis major NPM updates, that does not create PRs",
+      matchDatasources: ["npm"],
+      matchUpdateTypes: ["major"],
+      groupName: "npm-major-packages",
+      dependencyDashboardApproval: true,
+      matchPackageNames: ["!googleapis", "!npm", "!node", "!@opentelemetry/**"],
+    },
+    {
+      matchDatasources: ["terraform-module", "terraform-provider"],
+      groupName: "terraform",
+    },
+    {
+      matchDatasources: ["docker"],
+      groupName: "docker-containers",
+    },
+    {
+      matchDatasources: ["go"],
+      groupName: "golang-modules",
+    },
+    {
+      // Temporarily put opentelemetry into its own group...
+      matchPackageNames: ["@opentelemetry/**"],
+      matchDatasources: ["npm"],
+      dependencyDashboardApproval: false,
+      groupName: "opentelemetry",
+    },
+  ],
+  customManagers: [
+    {
+      customType: "regex",
+      description: "Update _VERSION variables in Dockerfiles, shell scripts",
+      fileMatch: [
+        "(^|/|\\.)([Dd]ocker|[Cc]ontainer)file$",
+        "(^|/)([Dd]ocker|[Cc]ontainer)file[^/]*$",
+        "(^|/)*.sh",
+      ],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>[a-z-]+?)(?: depName=(?<depName>.+?))? packageName=(?<packageName>.+?)(?: versioning=(?<versioning>[a-z-]+?))?\\s(?:ENV|ARG)?\\s*.+?_VERSION="?(?<currentValue>.+?)"?\\s',
+      ],
+    },
+  ],
+  rangeStrategy: "bump",
+}

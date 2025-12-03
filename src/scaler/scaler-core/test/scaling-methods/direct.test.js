@@ -13,6 +13,7 @@
  * limitations under the License
  */
 const rewire = require('rewire');
+require('should');
 const {createSpannerParameters} = require('../test-utils.js');
 
 const app = rewire('../../scaling-methods/direct.js');
@@ -20,21 +21,24 @@ const app = rewire('../../scaling-methods/direct.js');
 const calculateSize = app.__get__('calculateSize');
 describe('#direct.calculateSize', () => {
   it('should return the maximum processing units size', () => {
-    const spanner = createSpannerParameters({maxSize: 5000}, true);
+    const spanner = createSpannerParameters({maxSize: 5000});
 
     calculateSize(spanner).should.equal(5000);
   });
- 
+
   it('should return the maximum nodes size', () => {
-    const spanner = createSpannerParameters({units: 'NODES', maxSize: 8}, true);
+    const spanner = createSpannerParameters({units: 'NODES', maxSize: 8});
 
     calculateSize(spanner).should.equal(8);
   });
 
   it('should ignore deprecated parameter maxNodes', () => {
-    const spanner = createSpannerParameters({units: 'NODES', maxSize: 8, maxNodes: 9}, true);
+    const spanner = createSpannerParameters({
+      units: 'NODES',
+      maxSize: 8,
+      maxNodes: 9,
+    });
 
     calculateSize(spanner).should.equal(8);
   });
-
 });

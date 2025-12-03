@@ -5,7 +5,8 @@
 
   <p align="center">
     <!-- In one sentence: what does the code in this directory do? -->
-    Set up the Autoscaler in Cloud Functions in a distributed deployment using Terraform
+    Set up the Autoscaler in Cloud Run functions in a distributed
+    deployment using Terraform
     <br />
     <a href="../../../README.md">Home</a>
     ·
@@ -19,7 +20,7 @@
     ·
     <a href="../README.md#Monitoring">Monitoring</a>
     <br />
-    Cloud Functions
+    Cloud Run functions
     ·
     <a href="../../gke/README.md">Google Kubernetes Engine</a>
     <br />
@@ -137,28 +138,31 @@ Autoscaler infrastructure, with the exception of Cloud Scheduler, lives.
     gcloud config set project "${AUTOSCALER_PROJECT_ID}"
     ```
 
-4.  Choose the [region and zone][region-and-zone] and
+4.  Choose the [region][region-and-zone] and
     [App Engine Location][app-engine-location] where the Autoscaler
     infrastructure will be located.
 
     ```sh
     export AUTOSCALER_REGION=us-central1
-    export AUTOSCALER_ZONE=us-central1-c
     export AUTOSCALER_APP_ENGINE_LOCATION=us-central
     ```
 
 5.  Enable the required Cloud APIs :
 
     ```sh
-    gcloud services enable iam.googleapis.com \
-        cloudresourcemanager.googleapis.com \
-        spanner.googleapis.com \
+    gcloud services enable \
         appengine.googleapis.com \
-        firestore.googleapis.com \
-        pubsub.googleapis.com \
-        cloudfunctions.googleapis.com  \
         cloudbuild.googleapis.com \
-        cloudresourcemanager.googleapis.com
+        cloudfunctions.googleapis.com  \
+        cloudresourcemanager.googleapis.com \
+        compute.googleapis.com \
+        eventarc.googleapis.com \
+        firestore.googleapis.com \
+        iam.googleapis.com \
+        logging.googleapis.com \
+        monitoring.googleapis.com \
+        pubsub.googleapis.com \
+        spanner.googleapis.com
     ```
 
 6.  Create a Google App Engine app, to enable the APIs for Cloud Scheduler and Firestore.
@@ -180,13 +184,12 @@ Autoscaler infrastructure, with the exception of Cloud Scheduler, lives.
 
 ### Deploying the Autoscaler
 
-1.  Set the project ID, region, zone and App Engine location in the
+1.  Set the project ID, region, and App Engine location in the
     corresponding Terraform environment variables
 
     ```sh
     export TF_VAR_project_id="${AUTOSCALER_PROJECT_ID}"
     export TF_VAR_region="${AUTOSCALER_REGION}"
-    export TF_VAR_zone="${AUTOSCALER_ZONE}"
     export TF_VAR_location="${AUTOSCALER_APP_ENGINE_LOCATION}"
     ```
 
@@ -205,10 +208,10 @@ Autoscaler infrastructure, with the exception of Cloud Scheduler, lives.
     terraform apply -parallelism=2
     ```
 
-If you are running this command in Cloud Shell and encounter errors of the form
-"`Error: cannot assign requested address`", this is a
-[known issue][provider-issue] in the Terraform Google provider, please retry
-with -parallelism=1:
+    If you are running this command in Cloud Shell and encounter errors of the form
+    "`Error: cannot assign requested address`", this is a
+    [known issue][provider-issue] in the Terraform Google provider, please retry
+    with -parallelism=1.
 
 ## Preparing the Application Project
 
@@ -229,27 +232,32 @@ topic and function in the project where the Spanner instances live.
     gcloud config set project "${APP_PROJECT_ID}"
     ```
 
-4.  Choose the [region and zone][region-and-zone] and
+4.  Choose the [region][region-and-zone] and
     [App Engine Location][app-engine-location] where the Application project
     will be located.
 
     ```sh
     export APP_REGION=us-central1
-    export APP_ZONE=us-central1-c
     export APP_APP_ENGINE_LOCATION=us-central
     ```
 
 5.  Use the following command to enable the Cloud APIs:
 
     ```sh
-    gcloud services enable iam.googleapis.com \
-        cloudresourcemanager.googleapis.com \
+    gcloud services enable
         appengine.googleapis.com \
-        spanner.googleapis.com \
-        pubsub.googleapis.com \
+        cloudbuild.googleapis.com \
         cloudfunctions.googleapis.com \
+        cloudresourcemanager.googleapis.com \
         cloudscheduler.googleapis.com \
-        cloudbuild.googleapis.com
+        compute.googleapis.com \
+        eventarc.googleapis.com \
+        iam.googleapis.com \
+        logging.googleapis.com \
+        monitoring.googleapis.com \
+        pubsub.googleapis.com \
+        run.googleapis.com \
+        spanner.googleapis.com
     ```
 
 6.  Create an App to enable Cloud Scheduler, but do not create a Firestore
@@ -261,13 +269,12 @@ topic and function in the project where the Spanner instances live.
 
 ### Deploy the Application infrastructure
 
-1.  Set the project ID, region, zone and App Engine location in the
+1.  Set the project ID, region, and App Engine location in the
     corresponding Terraform environment variables
 
     ```sh
     export TF_VAR_project_id="${APP_PROJECT_ID}"
     export TF_VAR_region="${APP_REGION}"
-    export TF_VAR_zone="${APP_ZONE}"
     export TF_VAR_location="${APP_APP_ENGINE_LOCATION}"
     ```
 
@@ -333,11 +340,36 @@ topic and function in the project where the Spanner instances live.
 
     ```sql
     CREATE TABLE spannerAutoscaler (
-       id STRING(MAX),
-       lastScalingTimestamp TIMESTAMP,
-       createdOn TIMESTAMP,
-       updatedOn TIMESTAMP,
+      id STRING(MAX),
+      lastScalingTimestamp TIMESTAMP,
+      createdOn TIMESTAMP,
+      updatedOn TIMESTAMP,
+      lastScalingCompleteTimestamp TIMESTAMP,
+      scalingOperationId STRING(MAX),
+      scalingRequestedSize INT64,
+      scalingMethod STRING(MAX),
+      scalingPreviousSize INT64,
     ) PRIMARY KEY (id)
+    ```
+
+    Note: If you are upgrading from v1.x, then you need to add the 5 new columns
+    to the spanner schema using the following DDL statements
+
+    ```sql
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS lastScalingCompleteTimestamp TIMESTAMP;
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingOperationId STRING(MAX);
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingRequestedSize INT64;
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingMethod STRING(MAX);
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingPreviousSize INT64;
+    ```
+
+    Note: If you are upgrading from V2.0.x, then you need to add the 3 new columns
+    to the spanner schema using the following DDL statements
+
+    ```sql
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingRequestedSize INT64;
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingMethod STRING(MAX);
+    ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingPreviousSize INT64;
     ```
 
     For more information on how to make your existing Spanner instance to be
@@ -373,7 +405,6 @@ topic and function in the project where the Spanner instances live.
 
     export TF_VAR_project_id="${AUTOSCALER_PROJECT_ID}"
     export TF_VAR_region="${AUTOSCALER_REGION}"
-    export TF_VAR_zone="${AUTOSCALER_ZONE}"
     export TF_VAR_location="${AUTOSCALER_APP_ENGINE_LOCATION}"
     ```
 

@@ -13,17 +13,22 @@
  * limitations under the License
  */
 
-const pollerCore = require('poller-core');
-const yaml       = require('js-yaml');
-const fs         = require('fs/promises');
+const pollerCore = require('./poller-core');
+const yaml = require('js-yaml');
+const fs = require('fs/promises');
+const {logger} = require('../autoscaler-common/logger');
+const {version: packageVersion} = require('../../package.json');
 
+/**
+ * Entrypoint for GKE poller task.
+ */
 async function main() {
+  const DEFAULT_CONFIG_LOCATION =
+    '/etc/autoscaler-config/autoscaler-config.yaml';
 
-  const DEFAULT_CONFIG_LOCATION = '/etc/autoscaler-config/autoscaler-config.yaml';
+  logger.info(`Autoscaler Poller v${packageVersion} job started`);
 
-  pollerCore.log(`Autoscaler Poller job started`, {severity: 'INFO'});
-
-  var configLocation = DEFAULT_CONFIG_LOCATION;
+  let configLocation = DEFAULT_CONFIG_LOCATION;
 
   /*
    * If set, the AUTOSCALER_CONFIG environment variable is used to
@@ -34,17 +39,24 @@ async function main() {
 
   if (process.env.AUTOSCALER_CONFIG) {
     configLocation = process.env.AUTOSCALER_CONFIG;
-    pollerCore.log(`Using custom config location ${configLocation}`);
+    logger.debug(`Using custom config location ${configLocation}`);
   } else {
-    pollerCore.log(`Using default config location ${configLocation}`);
+    logger.debug(`Using default config location ${configLocation}`);
   }
 
   try {
-    const config = await fs.readFile(configLocation, { encoding: 'utf8' });
-    await pollerCore.checkSpannerScaleMetricsJSON(JSON.stringify(yaml.load(config)))
+    const config = await fs.readFile(configLocation, {encoding: 'utf8'});
+    await pollerCore.checkSpannerScaleMetricsJSON(
+      JSON.stringify(yaml.load(config)),
+    );
   } catch (err) {
-    pollerCore.log('Error in Poller wrapper:', {severity: 'ERROR', payload: err});
+    logger.error({
+      message: `Error in Poller: ${err}`,
+      err: err,
+    });
   }
 }
 
-main();
+module.exports = {
+  main,
+};

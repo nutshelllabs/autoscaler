@@ -1,0 +1,46 @@
+---
+updates:
+  # Github-actions dependancies
+  - directory: "/"
+    package-ecosystem: "github-actions"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "fix"
+    # Use Renovate for version updates, Dependabot for security updates only:
+    open-pull-requests-limit: 0
+
+  # NPM dependancies -- only prompt to update minor versions.
+  - directory: "/"
+    package-ecosystem: "npm"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "fix"
+    # Use Renovate for version updates, Dependabot for security updates only:
+    open-pull-requests-limit: 0
+
+  # Docker dependencies
+  - directory: "/"
+    package-ecosystem: "docker"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "fix"
+    # Use Renovate for version updates, Dependabot for security updates only:
+    open-pull-requests-limit: 0
+
+  # Terraform dependencies
+  - directory: "/terraform"
+    package-ecosystem: "terraform"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "fix"
+    # Use Renovate for version updates, Dependabot for security updates only:
+    open-pull-requests-limit: 0
+
+version: 2

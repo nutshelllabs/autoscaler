@@ -16,20 +16,34 @@
 /*
  * Direct scaling method
  *
- * Suggests scaling to the number of nodes or processing units specified by maxSize.
- * Useful to scale an instance in preparation for a batch job,
- * and to scale it back after the job is finished.
+ * Suggests scaling to the number of nodes or processing units specified by
+ * maxSize. Useful to scale an instance in preparation for a batch job, and to
+ * scale it back after the job is finished.
  */
-const {log} = require('../utils.js');
+const {logger} = require('../../../autoscaler-common/logger');
 
+/**
+ * @typedef {import('../../../autoscaler-common/types').AutoscalerSpanner
+ * } AutoscalerSpanner
+ */
+
+/**
+ * Size calculation for Direct scaling method
+ * @param {AutoscalerSpanner} spanner
+ * @return {number}
+ */
 function calculateSize(spanner) {
-  log(`---- DIRECT size suggestions for ${spanner.projectId}/${spanner.instanceId}----`,
-    {projectId: spanner.projectId, instanceId: spanner.instanceId});
-  log(`	Final DIRECT suggestion: ${spanner.maxSize} + ${spanner.units}}`,
-    {projectId: spanner.projectId, instanceId: spanner.instanceId});
+  logger.debug({
+    message: `---- DIRECT size suggestions for ${spanner.projectId}/${spanner.instanceId}----`,
+    projectId: spanner.projectId,
+    instanceId: spanner.instanceId,
+  });
+  logger.debug({
+    message: `\tFinal DIRECT suggestion: ${spanner.maxSize} + ${spanner.units}}`,
+    projectId: spanner.projectId,
+    instanceId: spanner.instanceId,
+  });
   return spanner.maxSize;
 }
 
-module.exports = {
-  calculateSize
-};
+module.exports = {calculateSize};

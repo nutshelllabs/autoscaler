@@ -18,63 +18,92 @@
  *
  * * Forwards PubSub messages from the Scheduler topic to the Poller topic.
  */
-
+// eslint-disable-next-line no-unused-vars -- for type checking only.
+const express = require('express');
 const {PubSub} = require('@google-cloud/pubsub');
+const {logger} = require('../autoscaler-common/logger');
+const assertDefined = require('../autoscaler-common/assertDefined');
 
 // GCP service clients
 const pubSub = new PubSub();
 
-function log(message, severity = 'DEBUG', payload) {
-  // Structured logging
-  // https://cloud.google.com/functions/docs/monitoring/logging#writing_structured_logs
-
-  if (!!payload) {
-    // If payload is an Error, get the stack trace.
-    if (payload instanceof Error && !!payload.stack) {
-      if (!!message ) {
-         message = message + '\n' + payload.stack;
-      } else {
-         message = payload.stack;
-      }
-    }
-  }
-  const logEntry = {
-    message: message,
-    severity: severity,
-    payload : payload
-  };
-  console.log(JSON.stringify(logEntry));
-}
-
-exports.forwardFromHTTP = async (req, res) => {
+/**
+ * Handle the forwarder request from HTTP
+ *
+ * For testing purposes - uses a fixed message.
+ *
+ * @param {express.Request} req
+ * @param {express.Response} res
+ */
+async function forwardFromHTTP(req, res) {
+  const payloadString =
+    '[{ ' +
+    '  "projectId": "spanner-scaler", ' +
+    '  "instanceId": "my-spanner", ' +
+    '  "scalerPubSubTopic": "projects/spanner-scaler/topics/my-scaling", ' +
+    '  "minNodes": 1, ' +
+    '  "maxNodes": 3, ' +
+    '  "stateProjectId" : "spanner-scaler" ' +
+    '}]';
   try {
-    const payloadString =
-        '[{"projectId": "spanner-scaler" "instanceId": "my-spanner", "scalerPubSubTopic": "projects/spanner-scaler/topics/my-scaling", "minNodes": 1, "maxNodes": 3, "stateProjectId" : "spanner-scaler"}]';
     const payload = Buffer.from(payloadString, 'utf8');
 
-    JSON.parse(payload.toString());  // Log exception in App project if payload
-                                     // cannot be parsed
-    const pollerTopic = pubSub.topic(process.env.POLLER_TOPIC);
-    pollerTopic.publish(payload);
+    JSON.parse(payload.toString()); // Log exception in App project if payload
+    // cannot be parsed
 
+    const pollerTopicName = assertDefined(
+      process.env.POLLER_TOPIC,
+      'POLLER_TOPIC environment variable',
+    );
+
+    const pollerTopic = pubSub.topic(pollerTopicName);
+    pollerTopic.publishMessage({data: payload});
+    logger.debug({
+      message: `Poll request forwarded to PubSub Topic ${pollerTopicName}`,
+    });
     res.status(200).end();
   } catch (err) {
-    log('failed to process payload: \n' + payloadString, 'ERROR', err);
-    res.status(500).end(err.toString());
+    logger.error({
+      message: `An error occurred in the Autoscaler forwarder (HTTP): ${err}`,
+      err: err,
+      payload: payloadString,
+    });
+    res.status(500).end('An exception occurred');
   }
-};
+}
 
-exports.forwardFromPubSub = async (pubSubEvent, context) => {
+/**
+ * Handle the Forwarder request from PubSub
+ *
+ * @param {any} pubSubEvent
+ * @param {*} context
+ */
+async function forwardFromPubSub(pubSubEvent, context) {
+  let payload;
   try {
-    const payload = Buffer.from(pubSubEvent.data, 'base64');
-    JSON.parse(payload.toString());  // Log exception in App project if payload
-                                     // cannot be parsed
+    payload = Buffer.from(pubSubEvent.data, 'base64');
+    JSON.parse(payload.toString()); // Log exception in App project if payload
+    // cannot be parsed
 
-    const pollerTopic = pubSub.topic(process.env.POLLER_TOPIC);
-    pollerTopic.publish(payload);
-
-    console.log('Poll request forwarded to ' + process.env.POLLER_TOPIC);
+    const pollerTopicName = assertDefined(
+      process.env.POLLER_TOPIC,
+      'POLLER_TOPIC environment variable',
+    );
+    const pollerTopic = pubSub.topic(pollerTopicName);
+    pollerTopic.publishMessage({data: payload});
+    logger.debug({
+      message: `Poll request forwarded to PubSub Topic ${pollerTopicName}`,
+    });
   } catch (err) {
-    log('failed to process payload: \n' + payload, 'ERROR', err);
+    logger.error({
+      message: `An error occurred in the Autoscaler forwarder (PubSub): ${err}`,
+      err: err,
+      payload: payload,
+    });
   }
+}
+
+module.exports = {
+  forwardFromHTTP,
+  forwardFromPubSub,
 };

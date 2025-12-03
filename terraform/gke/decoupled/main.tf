@@ -18,11 +18,11 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 4.63.0"
+      version = "6.24.0"
     }
-    google-beta = {
-      source  = "hashicorp/google-beta"
-      version = "~> 4.63.0"
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "2.36.0"
     }
   }
 }
@@ -30,13 +30,6 @@ terraform {
 provider "google" {
   project = var.project_id
   region  = var.region
-  zone    = var.zone
-}
-
-provider "google-beta" {
-  project = var.project_id
-  region  = var.region
-  zone    = var.zone
 }
 
 resource "google_service_account" "poller_sa" {
@@ -84,6 +77,7 @@ module "spanner" {
   terraform_spanner_state        = var.terraform_spanner_state
   terraform_spanner_test         = var.terraform_spanner_test
   project_id                     = var.project_id
+  region                         = var.region
   spanner_name                   = var.spanner_name
   spanner_state_name             = var.spanner_state_name
   spanner_test_processing_units  = var.spanner_test_processing_units
