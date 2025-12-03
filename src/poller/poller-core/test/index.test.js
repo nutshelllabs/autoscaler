@@ -122,7 +122,9 @@ describe('#parseAndEnrichPayload', () => {
     mergedConfig[0].minSize.should.equal(200);
     mergedConfig[0].maxSize.should.equal(2000);
     mergedConfig[0].stepSize.should.equal(200);
-    const idx = mergedConfig[0].metrics.findIndex((x) => x.name === 'minNodes');
+    const idx = mergedConfig[0].metrics.findIndex(
+      (/** @type {*} */ x) => x.name === 'minNodes',
+    );
     idx.should.equal(-1);
 
     unset();
@@ -151,10 +153,12 @@ describe('#parseAndEnrichPayload', () => {
 
     const mergedConfig = await parseAndEnrichPayload(payload);
 
-    let idx = mergedConfig[0].metrics.findIndex((x) => x.name === 'storage');
+    let idx = mergedConfig[0].metrics.findIndex(
+      (/** @type {*} */ x) => x.name === 'storage',
+    );
     mergedConfig[0].metrics[idx].regional_threshold.should.equal(10);
     idx = mergedConfig[0].metrics.findIndex(
-      (x) => x.name === 'high_priority_cpu',
+      (/** @type {*} */ x) => x.name === 'high_priority_cpu',
     );
     mergedConfig[0].metrics[idx].regional_threshold.should.equal(65);
 
@@ -170,10 +174,12 @@ describe('#parseAndEnrichPayload', () => {
 
     const mergedConfig = await parseAndEnrichPayload(payload);
 
-    let idx = mergedConfig[0].metrics.findIndex((x) => x.name === 'storage');
+    let idx = mergedConfig[0].metrics.findIndex(
+      (/** @type {*} */ x) => x.name === 'storage',
+    );
     mergedConfig[0].metrics[idx].regional_threshold.should.equal(10);
     idx = mergedConfig[0].metrics.findIndex(
-      (x) => x.name === 'high_priority_cpu',
+      (/** @type {*} */ x) => x.name === 'high_priority_cpu',
     );
     mergedConfig[0].metrics[idx].multi_regional_threshold.should.equal(20);
 
@@ -188,7 +194,9 @@ describe('#parseAndEnrichPayload', () => {
     const unset = app.__set__('getSpannerMetadata', stub);
 
     const mergedConfig = await parseAndEnrichPayload(payload);
-    const idx = mergedConfig[0].metrics.findIndex((x) => x.name === 'bogus');
+    const idx = mergedConfig[0].metrics.findIndex(
+      (/** @type {*} */ x) => x.name === 'bogus',
+    );
     mergedConfig[0].metrics[idx].multi_regional_threshold.should.equal(20);
     unset();
   });
@@ -201,7 +209,9 @@ describe('#parseAndEnrichPayload', () => {
     const unset = app.__set__('getSpannerMetadata', stub);
 
     const mergedConfig = await parseAndEnrichPayload(payload);
-    const idx = mergedConfig[0].metrics.findIndex((x) => x.name === 'bogus');
+    const idx = mergedConfig[0].metrics.findIndex(
+      (/** @type {*} */ x) => x.name === 'bogus',
+    );
     idx.should.equal(-1);
     unset();
   });

@@ -27,6 +27,11 @@ const {maybeRound} = require('../utils.js');
 const {logger} = require('../../../autoscaler-common/logger');
 
 /**
+ * @typedef {import('../../../autoscaler-common/types').AutoscalerSpanner
+ * } AutoscalerSpanner
+ */
+
+/**
  * Calculate the suggested size for cautious scaling
  * @param {AutoscalerSpanner} spanner - Spanner instance
  * @return {number}

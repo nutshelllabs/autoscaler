@@ -331,7 +331,7 @@ async function getSpannerMetadata(projectId, spannerInstanceId, units) {
 
 /**
  * Get scaling requirements for Dataflow jobs
- * @param {Array} config - Dataflow configuration
+ * @param {Array<Object>} config - Dataflow configuration
  * @param {number} maxUnits - Maximum units
  * @return {Promise<number>}
  */
@@ -452,7 +452,7 @@ async function postPubSubMessage(spanner, metrics) {
 /**
  * Log the result for testing/debugging
  * @param {AutoscalerSpanner} spanner - Spanner instance
- * @param {Array} metrics - Metrics array
+ * @param {Array<*>} metrics - Metrics array
  */
 function justLogTheResult(spanner, metrics) {
   spanner.metrics = metrics;
