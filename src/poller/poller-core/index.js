@@ -26,6 +26,7 @@ const express = require('express');
 const monitoring = require('@google-cloud/monitoring');
 const {PubSub} = require('@google-cloud/pubsub');
 const {Spanner} = require('@google-cloud/spanner');
+const {google: GoogleApis} = require('googleapis');
 const {logger} = require('../../autoscaler-common/logger');
 const Counters = require('./counters.js');
 const {AutoscalerUnits} = require('../../autoscaler-common/types');
@@ -44,14 +45,25 @@ const {ConfigValidator} = require('./config-validator');
  * } SpannerMetricValue
  * @typedef {import('../../autoscaler-common/types').SpannerMetric
  * } SpannerMetric
+ * @typedef {{
+ *   projectId: string,
+ *   region?: string[],
+ *   regions?: string[],
+ *   multiplier?: number|string
+ * }} DataflowProjectConfig
  */
 
 // GCP service clients
 const metricsClient = new monitoring.MetricServiceClient();
 const pubSub = new PubSub();
+const dataflowRestApi = GoogleApis.dataflow({
+  version: 'v1b3',
+  auth: new GoogleApis.auth.GoogleAuth({
+    scopes: ['https://www.googleapis.com/auth/cloud-platform.read-only'],
+  }),
+});
 
 const configValidator = new ConfigValidator();
-
 const baseDefaults = {
   units: AutoscalerUnits.NODES,
   scaleOutCoolingMinutes: 5,
@@ -329,6 +341,107 @@ async function getSpannerMetadata(projectId, spannerInstanceId, units) {
 }
 
 /**
+ * Estimate required PUs based on active Dataflow jobs.
+ *
+ * @param {DataflowProjectConfig[]} config
+ * @param {number} maxUnits
+ * @return {Promise<number>}
+ */
+async function getDataflowJobScalingRequirement(config, maxUnits) {
+  logger.info({
+    message: `----- Getting Dataflow jobs info -----`,
+  });
+  let desiredTotalSpannerScaleInPU = 0;
+
+  for (const project of config) {
+    const projectId = project.projectId;
+    const regionList = project.region || project.regions || [];
+    const regions = regionList.join(',');
+    const multiplier = Number(project.multiplier);
+    logger.info({
+      message: `----- ${projectId}/${regions}: Getting Dataflow jobs info, multiplier is ${multiplier} -----`,
+      projectId: projectId,
+    });
+    for (const region of regionList) {
+      let pageToken = undefined;
+      do {
+        /** @type {any} */
+        const listJobsResp = await dataflowRestApi.projects.locations.jobs.list(
+          {
+            projectId: projectId,
+            location: region,
+            filter: 'ACTIVE',
+            pageToken: pageToken,
+          },
+        );
+        const jobs = listJobsResp.data.jobs || [];
+        for (const j of jobs) {
+          if (j.name.startsWith('ingestion-job')) {
+            // each ingest job deserves its own 4k PUs
+            const ingestIncrement = 4000 * multiplier;
+            logger.info({
+              message: `----- ${projectId}/${regions}: Adding ${ingestIncrement} units for ingest... -----`,
+              projectId: projectId,
+            });
+            desiredTotalSpannerScaleInPU += ingestIncrement;
+            if (desiredTotalSpannerScaleInPU > maxUnits) {
+              return maxUnits;
+            }
+            continue;
+          }
+
+          // docgen
+          const jobDetailsResp =
+            await dataflowRestApi.projects.locations.jobs.get({
+              view: 'JOB_VIEW_DESCRIPTION',
+              jobId: j.id,
+              projectId: j.projectId || projectId,
+              location: j.location || region,
+            });
+          const jobDetails = jobDetailsResp.data;
+
+          let puIncrement = 4000;
+          if (
+            jobDetails &&
+            jobDetails.pipelineDescription &&
+            jobDetails.pipelineDescription.displayData
+          ) {
+            const numWorkersData =
+              jobDetails.pipelineDescription.displayData.find(
+                (d) => d.key == 'numWorkers',
+              );
+            if (numWorkersData) {
+              const requestedMaxWorkersForDocgen = Number(
+                numWorkersData.int64Value,
+              );
+              if (requestedMaxWorkersForDocgen >= 800) {
+                puIncrement = 8000;
+              } else if (requestedMaxWorkersForDocgen >= 400) {
+                puIncrement = 6000;
+              }
+            }
+          }
+          puIncrement *= multiplier;
+
+          logger.info({
+            message: `----- ${projectId}/${regions}: Adding ${puIncrement} units for docgen... -----`,
+            projectId: projectId,
+          });
+
+          desiredTotalSpannerScaleInPU += puIncrement;
+          if (desiredTotalSpannerScaleInPU > maxUnits) {
+            return maxUnits;
+          }
+        }
+        pageToken = listJobsResp.data.nextPageToken;
+      } while (pageToken);
+    }
+  }
+
+  return desiredTotalSpannerScaleInPU;
+}
+
+/**
  * Post a message to PubSub with the spanner instance and metrics.
  *
  * @param {AutoscalerSpanner} spanner
@@ -360,6 +473,16 @@ async function postPubSubMessage(spanner, metrics) {
         err: err,
       });
     });
+}
+
+/**
+ * @param {AutoscalerSpanner} spanner
+ * @param {SpannerMetricValue[]} metrics
+ * @return {Promise<void>}
+ */
+async function justLogTheResult(spanner, metrics) {
+  spanner.metrics = metrics;
+  console.log(JSON.stringify(spanner));
 }
 
 /**
@@ -477,6 +600,22 @@ async function parseAndEnrichPayload(payload) {
           spanners[sIdx].units.toUpperCase(),
         )),
       };
+      const dataflowReq = spanners[sIdx].requirements?.[0];
+      if (dataflowReq && dataflowReq.service == 'dataflow') {
+        for (const config of dataflowReq.config) {
+          // Backwards compatibility: older configs used "regions".
+          if (!config.region && config.regions) {
+            config.region = config.regions;
+          }
+          if (isNaN(Number(config.multiplier))) {
+            config.multiplier = 1;
+          }
+        }
+        dataflowReq.requiredSize = await getDataflowJobScalingRequirement(
+          dataflowReq.config,
+          spanners[sIdx].maxSize,
+        );
+      }
       spannersFound.push(spanners[sIdx]);
     } catch (err) {
       logger.error({
@@ -656,8 +795,9 @@ async function checkSpannerScaleMetricsHTTP(req, res) {
     '  "stateProjectId" : "spanner-scaler"' +
     '}]';
   try {
+    const payload = JSON.stringify(req.body);
     const spanners = await parseAndEnrichPayload(payload);
-    await forwardMetrics(postPubSubMessage, spanners);
+    await forwardMetrics(justLogTheResult, spanners);
     res.status(200).end();
     await Counters.incRequestsSuccessCounter();
   } catch (err) {

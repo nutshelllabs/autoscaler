@@ -156,8 +156,8 @@ or substracted to an instance based on the
 [Spanner recommended thresholds][spanner-metrics] for High Priority CPU, 24 hour
 rolling average CPU and Storage utilization metrics.
 
-Google recommends using the provided metrics, thresholds and margins unchanged. However,
-in some cases you may want to modify these or use a custom metric,
+Google recommends using the provided metrics, thresholds and margins unchanged.
+However, in some cases you may want to modify these or use a custom metric,
 for example: if reaching the default upper limit triggers an alert to your operations
 team, you could make the Autoscaler react to a more conservative threshold to
 avoid alerts being triggered.

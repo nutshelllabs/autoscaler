@@ -322,6 +322,60 @@ async function processScalingRequest(spanner, autoscalerState) {
   const {savedState, expectedFulfillmentPeriod} =
     await readStateCheckOngoingLRO(spanner, autoscalerState);
 
+  if (spanner.requirements && spanner.requirements.length > 0) {
+    logger.info({
+      message: `----- ${spanner.projectId}/${spanner.instanceId}: Found ${spanner.requirements.length} scaling requirements`,
+      projectId: spanner.projectId,
+      instanceId: spanner.instanceId,
+      payload: spanner,
+    });
+
+    // just sum everything up
+    const totalRequiredSize = spanner.requirements
+      .map((r) => r.requiredSize || 0)
+      .reduce((sum, num) => sum + num, 0);
+    if (totalRequiredSize > spanner.currentSize) {
+      logger.info({
+        message: `----- ${spanner.projectId}/${spanner.instanceId} has ${spanner.currentSize} ${spanner.units} but ${totalRequiredSize} is required. Autoscaling...`,
+        projectId: spanner.projectId,
+        instanceId: spanner.instanceId,
+        payload: spanner,
+      });
+      try {
+        const operationId = await scaleSpannerInstance(
+          spanner,
+          totalRequiredSize,
+        );
+        await autoscalerState.updateState({
+          ...savedState,
+          scalingOperationId: operationId,
+          lastScalingTimestamp: autoscalerState.now,
+          lastScalingCompleteTimestamp: null,
+          scalingMethod: spanner.scalingMethod,
+          scalingPreviousSize: spanner.currentSize,
+          scalingRequestedSize: totalRequiredSize,
+        });
+      } catch (err) {
+        logger.error({
+          message: `----- ${spanner.projectId}/${spanner.instanceId}: Unsuccessful scaling attempt.`,
+          projectId: spanner.projectId,
+          instanceId: spanner.instanceId,
+          err: err,
+        });
+        logger.warn({
+          message: `----- ${spanner.projectId}/${spanner.instanceId}: Spanner payload:`,
+          projectId: spanner.projectId,
+          instanceId: spanner.instanceId,
+          payload: spanner,
+        });
+      }
+      return;
+    } else if (totalRequiredSize > 0) {
+      // we must not scale below this value
+      spanner.minSize = Math.max(totalRequiredSize, spanner.minSize);
+    }
+  }
+
   const suggestedSize = getSuggestedSize(spanner);
   if (
     suggestedSize === spanner.currentSize &&

@@ -19,7 +19,18 @@ variable "project_id" {
 }
 
 variable "region" {
-  type = string
+  type    = string
+  default = "us-central1"
+}
+
+variable "firestore_location" {
+  type    = string
+  default = "us-central"
+}
+
+variable "zone" {
+  type    = string
+  default = "us-central1-c"
 }
 
 variable "spanner_name" {
@@ -64,6 +75,88 @@ variable "terraform_dashboard" {
   description = "If set to true, Terraform will create a Cloud Monitoring dashboard including important Spanner metrics."
   type        = bool
   default     = true
+}
+
+variable "units" {
+  type        = string
+  default     = "PROCESSING_UNITS"
+  description = "The measure that spanner size units are being specified in either: PROCESSING_UNITS or NODES"
+}
+
+variable "min_size" {
+  type        = number
+  default     = 100
+  description = "Minimum size that the spanner instance can be scaled in to."
+}
+
+variable "max_size" {
+  type        = number
+  default     = 2000
+  description = "Maximum size that the spanner instance can be scaled out to."
+}
+
+variable "scaling_method" {
+  type        = string
+  default     = "LINEAR"
+  description = "Algorithm that should be used to manage the scaling of the spanner instance: STEPWISE, LINEAR, DIRECT"
+}
+
+variable "high_priority_cpu_threshold" {
+  type        = number
+  default     = 40
+  description = "High priority CPU utilization threshold above which the spanner instance will be scaled out."
+}
+
+variable "step_size" {
+  type        = number
+  default     = 800
+  description = "Step size that the spanner instance will be scaled out by."
+}
+
+variable "overload_step_size" {
+  type        = number
+  default     = 1600
+  description = "Step size that the spanner instance will be scaled out by when overloaded."
+}
+
+variable "scale_out_cooling_minutes" {
+  type        = number
+  default     = 5
+  description = "Minimum Number of minutes between scale out operations."
+}
+
+variable "scale_in_cooling_minutes" {
+  type        = number
+  default     = 20
+  description = "Minimum Number of minutes between scale in operations."
+}
+
+variable "dataflow_project" {
+  type        = string
+  default     = null
+  description = "Dataflow project for running jobs checks"
+}
+
+variable "dataflow_project_ids" {
+  type        = list(string)
+  default     = []
+  description = "List of Dataflow projects for running jobs checks, for back-compat transforms to a union of dataflow_project and dataflow_project_ids"
+}
+
+variable "dataflow_pu_multiplier" {
+  type        = number
+  default     = 1
+  description = "Multiplier to PU increment requirement for running Dataflow jobs"
+}
+
+locals {
+  dataflow_project_ids = distinct(var.dataflow_project == null ? var.dataflow_project_ids : concat([var.dataflow_project], var.dataflow_project_ids))
+}
+
+variable "dataflow_regions" {
+  type        = list(string)
+  default     = ["us-central1", "us-east1", "us-west1", "us-east4"]
+  description = "Dataflow regions for running jobs checks"
 }
 
 locals {

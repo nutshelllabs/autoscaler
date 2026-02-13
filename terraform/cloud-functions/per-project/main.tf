@@ -49,11 +49,12 @@ module "autoscaler-base" {
 module "autoscaler-functions" {
   source = "../../modules/autoscaler-functions"
 
-  project_id      = var.project_id
-  region          = var.region
-  poller_sa_email = google_service_account.poller_sa.email
-  scaler_sa_email = google_service_account.scaler_sa.email
-  build_sa_id     = module.autoscaler-base.build_sa_id
+  project_id           = var.project_id
+  region               = var.region
+  poller_sa_email      = google_service_account.poller_sa.email
+  scaler_sa_email      = google_service_account.scaler_sa.email
+  build_sa_id          = module.autoscaler-base.build_sa_id
+  dataflow_project_ids = local.dataflow_project_ids
 }
 
 module "firestore" {
@@ -80,31 +81,64 @@ module "spanner" {
 }
 
 module "scheduler" {
-  source = "../../modules/scheduler"
-
+  source                  = "../../modules/scheduler"
+  location                = var.firestore_location
   project_id              = var.project_id
-  location                = var.region
   spanner_name            = var.spanner_name
   pubsub_topic            = module.autoscaler-functions.poller_topic
   target_pubsub_topic     = module.autoscaler-functions.scaler_topic
   terraform_spanner_state = var.terraform_spanner_state
   spanner_state_name      = var.spanner_state_name
 
-  // Example of passing config as json
-  // json_config             = base64encode(jsonencode([{
-  //   "projectId": "${var.project_id}",
-  //   "instanceId": "${module.spanner.spanner_name}",
-  //   "scalerPubSubTopic": "${module.autoscaler.scaler_topic}",
-  //   "units": "NODES",
-  //   "minSize": 1
-  //   "maxSize": 3,
-  //   "scalingMethod": "LINEAR"
-  // }]))
+
+  json_config = base64encode(jsonencode([
+    {
+      "units" : "PROCESSING_UNITS",
+      "minSize" : var.min_size,
+      "maxSize" : var.max_size,
+      "stepSize" : var.step_size,
+      "overloadStepSize" : var.overload_step_size,
+      "scaleOutCoolingMinutes" : var.scale_out_cooling_minutes,
+      "scaleInCoolingMinutes" : var.scale_in_cooling_minutes,
+      "scalingMethod" : var.scaling_method,
+      "projectId" : var.project_id,
+      "instanceId" : var.spanner_name,
+      "scalerPubSubTopic" : module.autoscaler-functions.scaler_topic,
+      "stateDatabase" : {
+        "name" : "firestore",
+      }
+      "metrics" : [
+        {
+          "name" : "high_priority_cpu",
+          "regional_threshold" : var.high_priority_cpu_threshold,
+        },
+        {
+          "name" : "rolling_24_hr",
+          "regional_threshold" : 90,
+        },
+        {
+          "name" : "storage",
+          "regional_threshold" : 75,
+        }
+      ],
+      "requirements" : [
+        {
+          "service" : "dataflow",
+          "config" : [for project_id in local.dataflow_project_ids : {
+            "projectId" : project_id,
+            "region" : var.dataflow_regions,
+            "multiplier" : var.dataflow_pu_multiplier,
+          }],
+        }
+      ]
+    }
+  ]))
 }
 
 module "monitoring" {
   count  = var.terraform_dashboard ? 1 : 0
   source = "../../modules/monitoring"
 
-  project_id = local.app_project_id
+  project_id                                       = local.app_project_id
+  dashboard_threshold_high_priority_cpu_percentage = var.high_priority_cpu_threshold
 }

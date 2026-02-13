@@ -49,7 +49,8 @@ The Cloud Spanner instances reside in a given application project.
 <ul> <li style="list-style-type: none;">
   1 . Cloud Scheduler lives in the same project as the Cloud Spanner instances.
 
-  2a. Cloud Scheduler publishes its messages to the Forwarder topic in the same project.
+  2a. Cloud Scheduler publishes its messages to the Forwarder topic in the same
+project.
 
   2b. The Forwarder Cloud Function reads messages from the Forwarder topic, and
 

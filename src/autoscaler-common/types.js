@@ -62,6 +62,23 @@ const AutoscalerUnits = {
 
 /**
  * @typedef {{
+ *   projectId: string,
+ *   region?: string[],
+ *   regions?: string[],
+ *   multiplier?: number|string,
+ * }} DataflowRequirementConfig
+ */
+
+/**
+ * @typedef {{
+ *   service: "dataflow",
+ *   config: DataflowRequirementConfig[],
+ *   requiredSize?: number,
+ * }} ScalingRequirement
+ */
+
+/**
+ * @typedef {{
  *    scalingMethod: string,
  *    projectId: string,
  *    instanceId: string,
@@ -82,6 +99,7 @@ const AutoscalerUnits = {
  *    stepSize: number,
  *    overloadStepSize: number,
  *    metrics: (SpannerMetric | SpannerMetricValue)[],
+ *    requirements?: ScalingRequirement[],
  * }} SpannerConfig;
  */
 

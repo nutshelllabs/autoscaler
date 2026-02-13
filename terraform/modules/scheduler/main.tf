@@ -38,9 +38,10 @@ locals {
   ]))
 }
 
-resource "google_app_engine_application" "app" {
-  project     = var.project_id
-  location_id = var.location == "us-central1" ? "us-central" : var.location
+resource "google_firestore_database" "default" {
+  name        = "(default)"
+  location_id = var.location
+  type        = "FIRESTORE_NATIVE"
 }
 
 resource "google_cloud_scheduler_job" "poller_job" {
@@ -63,7 +64,7 @@ resource "google_cloud_scheduler_job" "poller_job" {
     min_backoff_duration = "5s"
   }
 
-  depends_on = [google_app_engine_application.app]
+  depends_on = [google_firestore_database.default]
 
   /**
    * Uncomment this stanza if you would prefer to manage the Cloud Scheduler
