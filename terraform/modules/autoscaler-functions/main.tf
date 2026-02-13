@@ -70,9 +70,9 @@ resource "google_pubsub_topic_iam_member" "scaler_pubsub_sub_iam" {
 
 resource "google_project_iam_member" "dataflow_iam" {
   for_each = toset(var.dataflow_project_ids)
-  project = each.value
-  role    = "roles/dataflow.viewer"
-  member  = "serviceAccount:${var.poller_sa_email}"
+  project  = each.value
+  role     = "roles/dataflow.viewer"
+  member   = "serviceAccount:${var.poller_sa_email}"
 }
 
 // Cloud Run functions

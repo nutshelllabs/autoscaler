@@ -332,7 +332,7 @@ async function processScalingRequest(spanner, autoscalerState) {
 
     // just sum everything up
     const totalRequiredSize = spanner.requirements
-      .map(r => r.requiredSize)
+      .map((r) => r.requiredSize || 0)
       .reduce((sum, num) => sum + num, 0);
     if (totalRequiredSize > spanner.currentSize) {
       logger.info({
@@ -342,9 +342,19 @@ async function processScalingRequest(spanner, autoscalerState) {
         payload: spanner,
       });
       try {
-        await autoscalerState.get();
-        await scaleSpannerInstance(spanner, totalRequiredSize);
-        await autoscalerState.set();
+        const operationId = await scaleSpannerInstance(
+          spanner,
+          totalRequiredSize,
+        );
+        await autoscalerState.updateState({
+          ...savedState,
+          scalingOperationId: operationId,
+          lastScalingTimestamp: autoscalerState.now,
+          lastScalingCompleteTimestamp: null,
+          scalingMethod: spanner.scalingMethod,
+          scalingPreviousSize: spanner.currentSize,
+          scalingRequestedSize: totalRequiredSize,
+        });
       } catch (err) {
         logger.error({
           message: `----- ${spanner.projectId}/${spanner.instanceId}: Unsuccessful scaling attempt.`,

@@ -49,11 +49,11 @@ module "autoscaler-base" {
 module "autoscaler-functions" {
   source = "../../modules/autoscaler-functions"
 
-  project_id      = var.project_id
-  region          = var.region
-  poller_sa_email = google_service_account.poller_sa.email
-  scaler_sa_email = google_service_account.scaler_sa.email
-  build_sa_id     = module.autoscaler-base.build_sa_id
+  project_id           = var.project_id
+  region               = var.region
+  poller_sa_email      = google_service_account.poller_sa.email
+  scaler_sa_email      = google_service_account.scaler_sa.email
+  build_sa_id          = module.autoscaler-base.build_sa_id
   dataflow_project_ids = local.dataflow_project_ids
 }
 
@@ -81,8 +81,8 @@ module "spanner" {
 }
 
 module "scheduler" {
-  source = "../../modules/scheduler"
-  location = var.firestore_location
+  source                  = "../../modules/scheduler"
+  location                = var.firestore_location
   project_id              = var.project_id
   spanner_name            = var.spanner_name
   pubsub_topic            = module.autoscaler-functions.poller_topic
@@ -93,41 +93,41 @@ module "scheduler" {
 
   json_config = base64encode(jsonencode([
     {
-      "units":"PROCESSING_UNITS",
-      "minSize":var.min_size,
-      "maxSize":var.max_size,
-      "stepSize":var.step_size,
-      "overloadStepSize":var.overload_step_size,
-      "scaleOutCoolingMinutes":var.scale_out_cooling_minutes,
-      "scaleInCoolingMinutes":var.scale_in_cooling_minutes,
-      "scalingMethod":var.scaling_method,
-      "projectId": var.project_id,
-      "instanceId":var.spanner_name,
-      "scalerPubSubTopic": module.autoscaler-functions.scaler_topic,
-      "stateDatabase": {
-        "name": "firestore",
+      "units" : "PROCESSING_UNITS",
+      "minSize" : var.min_size,
+      "maxSize" : var.max_size,
+      "stepSize" : var.step_size,
+      "overloadStepSize" : var.overload_step_size,
+      "scaleOutCoolingMinutes" : var.scale_out_cooling_minutes,
+      "scaleInCoolingMinutes" : var.scale_in_cooling_minutes,
+      "scalingMethod" : var.scaling_method,
+      "projectId" : var.project_id,
+      "instanceId" : var.spanner_name,
+      "scalerPubSubTopic" : module.autoscaler-functions.scaler_topic,
+      "stateDatabase" : {
+        "name" : "firestore",
       }
-      "metrics":[
+      "metrics" : [
         {
-          "name":"high_priority_cpu",
-          "regional_threshold": var.high_priority_cpu_threshold,
+          "name" : "high_priority_cpu",
+          "regional_threshold" : var.high_priority_cpu_threshold,
         },
         {
-          "name":"rolling_24_hr",
-          "regional_threshold":90,
+          "name" : "rolling_24_hr",
+          "regional_threshold" : 90,
         },
         {
-          "name":"storage",
-          "regional_threshold":75,
+          "name" : "storage",
+          "regional_threshold" : 75,
         }
       ],
-      "requirements": [
+      "requirements" : [
         {
-          "service": "dataflow",
-          "config": [for project_id in local.dataflow_project_ids: {
-            "projectId": project_id,
-            "region": var.dataflow_regions,
-            "multiplier": var.dataflow_pu_multiplier,
+          "service" : "dataflow",
+          "config" : [for project_id in local.dataflow_project_ids : {
+            "projectId" : project_id,
+            "region" : var.dataflow_regions,
+            "multiplier" : var.dataflow_pu_multiplier,
           }],
         }
       ]
@@ -139,6 +139,6 @@ module "monitoring" {
   count  = var.terraform_dashboard ? 1 : 0
   source = "../../modules/monitoring"
 
-  project_id = local.app_project_id
+  project_id                                       = local.app_project_id
   dashboard_threshold_high_priority_cpu_percentage = var.high_priority_cpu_threshold
 }

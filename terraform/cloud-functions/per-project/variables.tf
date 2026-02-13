@@ -102,50 +102,50 @@ variable "scaling_method" {
 }
 
 variable "high_priority_cpu_threshold" {
-    type        = number
-    default     = 40
-    description = "High priority CPU utilization threshold above which the spanner instance will be scaled out."
+  type        = number
+  default     = 40
+  description = "High priority CPU utilization threshold above which the spanner instance will be scaled out."
 }
 
 variable "step_size" {
-    type        = number
-    default     = 800
-    description = "Step size that the spanner instance will be scaled out by."
+  type        = number
+  default     = 800
+  description = "Step size that the spanner instance will be scaled out by."
 }
 
 variable "overload_step_size" {
-    type        = number
-    default     = 1600
-    description = "Step size that the spanner instance will be scaled out by when overloaded."
+  type        = number
+  default     = 1600
+  description = "Step size that the spanner instance will be scaled out by when overloaded."
 }
 
 variable "scale_out_cooling_minutes" {
-    type        = number
-    default     = 5
-    description = "Minimum Number of minutes between scale out operations."
+  type        = number
+  default     = 5
+  description = "Minimum Number of minutes between scale out operations."
 }
 
 variable "scale_in_cooling_minutes" {
-    type        = number
-    default     = 20
-    description = "Minimum Number of minutes between scale in operations."
+  type        = number
+  default     = 20
+  description = "Minimum Number of minutes between scale in operations."
 }
 
 variable "dataflow_project" {
-  type = string
-  default = null
+  type        = string
+  default     = null
   description = "Dataflow project for running jobs checks"
 }
 
 variable "dataflow_project_ids" {
-  type = list(string)
-  default = []
+  type        = list(string)
+  default     = []
   description = "List of Dataflow projects for running jobs checks, for back-compat transforms to a union of dataflow_project and dataflow_project_ids"
 }
 
 variable "dataflow_pu_multiplier" {
-  type = number
-  default = 1
+  type        = number
+  default     = 1
   description = "Multiplier to PU increment requirement for running Dataflow jobs"
 }
 
@@ -154,8 +154,8 @@ locals {
 }
 
 variable "dataflow_regions" {
-  type = list(string)
-  default = ["us-central1","us-east1","us-west1","us-east4"]
+  type        = list(string)
+  default     = ["us-central1", "us-east1", "us-west1", "us-east4"]
   description = "Dataflow regions for running jobs checks"
 }
 

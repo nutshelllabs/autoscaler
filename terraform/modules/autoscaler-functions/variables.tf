@@ -19,8 +19,8 @@ variable "project_id" {
 }
 
 variable "dataflow_project_ids" {
-  type = list(string)
-  default = []
+  type        = list(string)
+  default     = []
   description = "List of Dataflow projects for running jobs checks"
 }
 

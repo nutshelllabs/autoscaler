@@ -30,10 +30,12 @@
   "requirements": [
     {
       "service": "dataflow",
-      "config": [{
-        "projectId": "prj-foo",
-        "regions": ["us-central1", "us-west2"]
-      }],
+      "config": [
+        {
+          "projectId": "prj-foo",
+          "regions": ["us-central1", "us-west2"]
+        }
+      ],
       "requiredSize": 100
     }
   ],
