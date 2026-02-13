@@ -576,6 +576,10 @@ async function parseAndEnrichPayload(payload) {
           && spanners[sIdx].requirements[0].service == 'dataflow') {
         const dataflowReq = spanners[sIdx].requirements[0];
         for (const config of dataflowReq.config) {
+          // Backwards compatibility: older configs used "regions".
+          if (!config.region && config.regions) {
+            config.region = config.regions;
+          }
           if (isNaN(Number(config.multiplier))) {
             config.multiplier = 1;
           }
