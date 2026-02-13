@@ -26,7 +26,7 @@ const express = require('express');
 const monitoring = require('@google-cloud/monitoring');
 const {PubSub} = require('@google-cloud/pubsub');
 const {Spanner} = require('@google-cloud/spanner');
-const {JobsV1Beta3Client} = require('@google-cloud/dataflow').v1beta3;
+const {google: GoogleApis} = require('googleapis');
 const {logger} = require('../../autoscaler-common/logger');
 const Counters = require('./counters.js');
 const {AutoscalerUnits} = require('../../autoscaler-common/types');
@@ -50,7 +50,12 @@ const {ConfigValidator} = require('./config-validator');
 // GCP service clients
 const metricsClient = new monitoring.MetricServiceClient();
 const pubSub = new PubSub();
-const dataflowClient = new JobsV1Beta3Client();
+const dataflowRestApi = GoogleApis.dataflow({
+  version: 'v1b3',
+  auth: new GoogleApis.auth.GoogleAuth({
+    scopes: ['https://www.googleapis.com/auth/cloud-platform.read-only'],
+  }),
+});
 
 const configValidator = new ConfigValidator();
 const baseDefaults = {
@@ -344,12 +349,16 @@ async function getDataflowJobScalingRequirement(config, maxUnits) {
       projectId: projectId,
     });
     for (const region of project.region) {
-      const jobs = await dataflowClient.listJobsAsync({
-        projectId: projectId,
-        location: region,
-        filter: 'ACTIVE',
-      });
-      for await (const j of jobs) {
+      let pageToken = undefined;
+      do {
+        const listJobsResp = await dataflowRestApi.projects.locations.jobs.list({
+          projectId: projectId,
+          location: region,
+          filter: 'ACTIVE',
+          pageToken: pageToken,
+        });
+        const jobs = listJobsResp.data.jobs || [];
+        for (const j of jobs) {
         if (j.name.startsWith("ingestion-job")) {
           // each ingest job deserves its own 4k PUs
           const ingestIncrement = 4000 * multiplier;
@@ -365,18 +374,19 @@ async function getDataflowJobScalingRequirement(config, maxUnits) {
         }
 
         // docgen
-        const jobDetails = await dataflowClient.getJob({
+        const jobDetailsResp = await dataflowRestApi.projects.locations.jobs.get({
           view: 'JOB_VIEW_DESCRIPTION',
           jobId: j.id,
-          projectId: j.projectId,
-          location: j.location
+          projectId: j.projectId || projectId,
+          location: j.location || region,
         });
+        const jobDetails = jobDetailsResp.data;
 
         var puIncrement = 4000;
-        if (jobDetails.length > 0
-            && jobDetails[0].pipelineDescription
-            && jobDetails[0].pipelineDescription.displayData) {
-          const numWorkersData = jobDetails[0].pipelineDescription.displayData.find(
+        if (jobDetails
+            && jobDetails.pipelineDescription
+            && jobDetails.pipelineDescription.displayData) {
+          const numWorkersData = jobDetails.pipelineDescription.displayData.find(
               d => d.key == 'numWorkers');
           if (numWorkersData) {
             const requestedMaxWorkersForDocgen = numWorkersData.int64Value;
@@ -398,7 +408,9 @@ async function getDataflowJobScalingRequirement(config, maxUnits) {
         if (desiredTotalSpannerScaleInPU > maxUnits) {
           return maxUnits;
         }
-      }
+        }
+        pageToken = listJobsResp.data.nextPageToken;
+      } while (pageToken);
     }
   }
 
