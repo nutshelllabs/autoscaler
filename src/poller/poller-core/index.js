@@ -59,7 +59,7 @@ const pubSub = new PubSub();
 const dataflowRestApi = GoogleApis.dataflow({
   version: 'v1b3',
   auth: new GoogleApis.auth.GoogleAuth({
-    scopes: ['https://www.googleapis.com/auth/cloud-platform.read-only'],
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
   }),
 });
 
