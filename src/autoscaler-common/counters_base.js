@@ -24,7 +24,10 @@ const {
   MeterProvider,
   PeriodicExportingMetricReader,
 } = require('@opentelemetry/sdk-metrics');
-const {Resource} = require('@opentelemetry/resources');
+const {
+  resourceFromAttributes,
+  detectResources,
+} = require('@opentelemetry/resources');
 const {
   MetricExporter: GcpMetricExporter,
 } = require('@google-cloud/opentelemetry-cloud-monitoring-exporter');
@@ -57,9 +60,9 @@ const {version: packageVersion} = require('../../package.json');
  */
 /** @type {CounterAttributes} */
 const RESOURCE_ATTRIBUTES = {
-  [Semconv.SEMRESATTRS_SERVICE_NAMESPACE]: 'cloudspannerecosystem',
-  [Semconv.SEMRESATTRS_SERVICE_NAME]: 'autoscaler',
-  [Semconv.SEMRESATTRS_SERVICE_VERSION]: packageVersion,
+  [Semconv.ATTR_SERVICE_NAMESPACE]: 'cloudspannerecosystem',
+  [Semconv.ATTR_SERVICE_NAME]: 'autoscaler',
+  [Semconv.ATTR_SERVICE_VERSION]: packageVersion,
 };
 
 const COUNTER_ATTRIBUTE_NAMES = {
@@ -71,9 +74,9 @@ const COUNTER_ATTRIBUTE_NAMES = {
  * The prefix to use for any autoscaler counters.
  */
 const COUNTERS_PREFIX =
-  RESOURCE_ATTRIBUTES[Semconv.SEMRESATTRS_SERVICE_NAMESPACE] +
+  RESOURCE_ATTRIBUTES[Semconv.ATTR_SERVICE_NAMESPACE] +
   '/' +
-  RESOURCE_ATTRIBUTES[Semconv.SEMRESATTRS_SERVICE_NAME] +
+  RESOURCE_ATTRIBUTES[Semconv.ATTR_SERVICE_NAME] +
   '/';
 
 /** @enum{String} */
@@ -162,7 +165,7 @@ class DiagToBunyanLogger {
    * @param {any[]} args
    */
   verbose(message, ...args) {
-    logger.trace('otel: ' + message, args);
+    logger.trace('otel: ' + message, ...args);
   }
 
   /**
@@ -170,30 +173,29 @@ class DiagToBunyanLogger {
    * @param {any[]} args
    */
   debug(message, ...args) {
-    logger.debug('otel: ' + message, args);
+    logger.debug('otel: ' + message, ...args);
   }
   /**
    * @param {string} message
    * @param {any[]} args
    */
   info(message, ...args) {
-    logger.info('otel: ' + message, args);
+    logger.info('otel: ' + message, ...args);
   }
   /**
    * @param {string} message
    * @param {any[]} args
    */
   warn(message, ...args) {
-    logger.warn('otel: ' + message, args);
+    logger.warn('otel: ' + message, ...args);
   }
-  // eslint-disable-next-line require-jsdoc
   /**
    * @param {string} message
    * @param {any[]} args
    */
   error(message, ...args) {
     if (!this.suppressErrors) {
-      logger.error('otel: ' + message, args);
+      logger.error('otel: ' + message, ...args);
     }
   }
 }
@@ -260,9 +262,9 @@ async function initMetrics() {
       }
     }
 
-    const resources = new GcpDetectorSync()
-      .detect()
-      .merge(new Resource(RESOURCE_ATTRIBUTES));
+    const resources = detectResources({
+      detectors: [new GcpDetectorSync()],
+    }).merge(resourceFromAttributes(RESOURCE_ATTRIBUTES));
     if (resources.waitForAsyncAttributes) {
       await resources.waitForAsyncAttributes();
     }

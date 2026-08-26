@@ -52,7 +52,6 @@ class DummySpannerClass {
     return stubSpannerConstructor(arg);
   }
   // @ts-ignore
-  // eslint-disable-next-line require-jsdoc
   static timestamp(arg) {
     return spanner.Spanner.timestamp(arg);
   }
@@ -165,7 +164,7 @@ describe('stateFirestoreTests', () => {
     stubFirestoreInstance.doc.withArgs(OLD_DOC_PATH).returns(oldDocRef);
     // Clear cached Firestore instances from the memoized function in
     // StateFirestore:
-    StateFirestore.getFirestoreClient.cache.clear();
+    StateFirestore.firestoreClients.clear();
   });
 
   it('should create a StateFirestore object on spanner projectId', function () {
@@ -435,7 +434,7 @@ describe('stateSpannerTests', () => {
 
     // Clear cached Spanner DB instances from the memoized function in
     // StateSpanner
-    StateSpanner.getSpannerDatabaseClient.cache.clear();
+    StateSpanner.databaseClients.clear();
   });
 
   it('should create a StateSpanner object connecting to spanner projectId', function () {
