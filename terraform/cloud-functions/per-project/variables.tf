@@ -159,6 +159,44 @@ variable "dataflow_regions" {
   description = "Dataflow regions for running jobs checks"
 }
 
+variable "cloudrun_project_ids" {
+  type        = list(string)
+  default     = null
+  description = "Projects whose Cloud Run job executions keep Spanner scaled up. Defaults to the Dataflow projects."
+}
+
+variable "cloudrun_additional_project_ids" {
+  type        = list(string)
+  default     = []
+  description = "Projects added to cloudrun_project_ids, for workloads that run outside the Dataflow projects"
+}
+
+variable "cloudrun_regions" {
+  type        = list(string)
+  default     = null
+  description = "Regions whose Cloud Run jobs are checked. Defaults to [region]."
+}
+
+variable "cloudrun_job_names" {
+  type        = list(string)
+  default     = ["conveyor-polyflow-node", "ingest-polyflow-node"]
+  description = "Cloud Run job name prefixes whose running executions add to the required size"
+}
+
+variable "cloudrun_pu_per_execution" {
+  type        = number
+  default     = 2000
+  description = "PUs required for every running execution of a matching Cloud Run job"
+}
+
+locals {
+  cloudrun_project_ids = distinct(concat(
+    coalesce(var.cloudrun_project_ids, local.dataflow_project_ids),
+    var.cloudrun_additional_project_ids,
+  ))
+  cloudrun_regions = coalesce(var.cloudrun_regions, [var.region])
+}
+
 locals {
   # By default, these config files produce a per-project deployment
   # If you want a centralized deployment instead, then specify

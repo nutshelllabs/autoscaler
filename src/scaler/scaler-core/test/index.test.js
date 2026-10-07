@@ -255,6 +255,57 @@ describe('#processScalingRequest', () => {
     assert.equals(countersStub.incScalingFailedCounter.callCount, 0);
   });
 
+  it('should scale straight to the summed requirement when above current size', async function () {
+    const spanner = createSpannerParameters({
+      requirements: [
+        {service: 'dataflow', config: [], requiredSize: 4000},
+        {service: 'cloudrun', config: [], requiredSize: 2000},
+      ],
+    });
+    getSuggestedSizeStub.returns(spanner.currentSize);
+    stubScaleSpannerInstance.returns('scalingOperationId');
+    const stateStub = createStubState();
+
+    await processScalingRequest(spanner, stateStub);
+
+    assert.equals(stubScaleSpannerInstance.callCount, 1);
+    assert.equals(stubScaleSpannerInstance.getCall(0).args[1], 6000);
+    assert.equals(getSuggestedSizeStub.callCount, 0);
+    sinon.assert.calledWithMatch(stateStub.updateState, {
+      scalingOperationId: 'scalingOperationId',
+      scalingPreviousSize: spanner.currentSize,
+      scalingRequestedSize: 6000,
+    });
+  });
+
+  it('should raise minSize to the requirement when already at or above it', async function () {
+    const spanner = createSpannerParameters({
+      currentSize: 3000,
+      minSize: 200,
+      requirements: [{service: 'cloudrun', config: [], requiredSize: 2000}],
+    });
+    getSuggestedSizeStub.returns(3000);
+
+    await processScalingRequest(spanner, createStubState());
+
+    assert.equals(stubScaleSpannerInstance.callCount, 0);
+    assert.equals(spanner.minSize, 2000);
+    assert.equals(getSuggestedSizeStub.callCount, 1);
+  });
+
+  it('should leave minSize alone when nothing is required', async function () {
+    const spanner = createSpannerParameters({
+      minSize: 200,
+      requirements: [{service: 'cloudrun', config: [], requiredSize: 0}],
+    });
+    getSuggestedSizeStub.returns(spanner.currentSize);
+
+    await processScalingRequest(spanner, createStubState());
+
+    assert.equals(stubScaleSpannerInstance.callCount, 0);
+    assert.equals(spanner.minSize, 200);
+  });
+
   it('Scaling failures increment counter', async function () {
     const spanner = createSpannerParameters();
     const suggestedSize = spanner.currentSize + 100;

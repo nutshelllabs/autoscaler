@@ -51,17 +51,31 @@ const {ConfigValidator} = require('./config-validator');
  *   regions?: string[],
  *   multiplier?: number|string
  * }} DataflowProjectConfig
+ * @typedef {{
+ *   projectId: string,
+ *   region: string[],
+ *   jobs: string[],
+ *   unitsPerExecution: number,
+ *   lookbackHours: number
+ * }} CloudRunProjectConfig
+ * @typedef {import('../../autoscaler-common/types').ScalingRequirement
+ * } ScalingRequirement
  */
 
 // GCP service clients
 const metricsClient = new monitoring.MetricServiceClient();
 const pubSub = new PubSub();
+const googleAuth = new GoogleApis.auth.GoogleAuth({
+  scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+});
 const dataflowRestApi = GoogleApis.dataflow({
   version: 'v1b3',
-  auth: new GoogleApis.auth.GoogleAuth({
-    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-  }),
+  auth: googleAuth,
 });
+const cloudRunRestApi = GoogleApis.run({version: 'v2', auth: googleAuth});
+
+const CLOUD_RUN_DEFAULT_UNITS_PER_EXECUTION = 2000;
+const CLOUD_RUN_DEFAULT_LOOKBACK_HOURS = 24;
 
 const configValidator = new ConfigValidator();
 const baseDefaults = {
@@ -442,6 +456,185 @@ async function getDataflowJobScalingRequirement(config, maxUnits) {
 }
 
 /**
+ * List the Cloud Run jobs in a project location whose short name starts
+ * with one of the given prefixes. An empty prefix list matches every job.
+ *
+ * @param {string} parent projects/{project}/locations/{region}
+ * @param {string[]} jobPrefixes
+ * @return {Promise<string[]>} full job resource names
+ */
+async function listCloudRunJobs(parent, jobPrefixes) {
+  const matching = [];
+  let pageToken = undefined;
+  do {
+    /** @type {any} */
+    const resp = await cloudRunRestApi.projects.locations.jobs.list({
+      parent: parent,
+      pageToken: pageToken,
+    });
+    for (const job of resp.data.jobs || []) {
+      const shortName = job.name.split('/').pop();
+      if (
+        jobPrefixes.length == 0 ||
+        jobPrefixes.some((prefix) => shortName.startsWith(prefix))
+      ) {
+        matching.push(job.name);
+      }
+    }
+    pageToken = resp.data.nextPageToken;
+  } while (pageToken);
+  return matching;
+}
+
+/**
+ * Count the executions of a Cloud Run job that have not completed.
+ *
+ * Executions are listed newest first, so paging stops once a page reaches
+ * executions created before the lookback window.
+ *
+ * @param {string} jobName full job resource name
+ * @param {number} lookbackHours
+ * @return {Promise<number>}
+ */
+async function countRunningCloudRunExecutions(jobName, lookbackHours) {
+  const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
+  let running = 0;
+  let pageToken = undefined;
+  do {
+    /** @type {any} */
+    const resp = await cloudRunRestApi.projects.locations.jobs.executions.list({
+      parent: jobName,
+      pageSize: 100,
+      pageToken: pageToken,
+    });
+    const executions = resp.data.executions || [];
+    for (const execution of executions) {
+      if (!execution.completionTime) {
+        running++;
+      }
+    }
+    pageToken = resp.data.nextPageToken;
+    const oldest = executions[executions.length - 1];
+    if (oldest && Date.parse(oldest.createTime) < cutoff) {
+      break;
+    }
+  } while (pageToken);
+  return running;
+}
+
+/**
+ * Estimate required PUs based on running Cloud Run job executions.
+ * Every running execution of a matching job adds unitsPerExecution.
+ *
+ * @param {CloudRunProjectConfig[]} config
+ * @param {number} maxUnits
+ * @return {Promise<number>}
+ */
+async function getCloudRunJobScalingRequirement(config, maxUnits) {
+  logger.info({
+    message: `----- Getting Cloud Run job executions info -----`,
+  });
+  let required = 0;
+
+  for (const project of config) {
+    for (const region of project.region) {
+      const parent = `projects/${project.projectId}/locations/${region}`;
+      const jobs = await listCloudRunJobs(parent, project.jobs);
+      for (const job of jobs) {
+        const running = await countRunningCloudRunExecutions(
+          job,
+          project.lookbackHours,
+        );
+        if (running == 0) {
+          continue;
+        }
+        const increment = running * project.unitsPerExecution;
+        logger.info({
+          message: `----- ${job}: ${running} running execution(s), adding ${increment} units -----`,
+          projectId: project.projectId,
+        });
+        required += increment;
+        if (required > maxUnits) {
+          return maxUnits;
+        }
+      }
+    }
+  }
+
+  return required;
+}
+
+/**
+ * Normalize a dataflow requirement config in place.
+ *
+ * @param {DataflowProjectConfig} config
+ */
+function normalizeDataflowConfig(config) {
+  // Backwards compatibility: older configs used "regions".
+  if (!config.region && config.regions) {
+    config.region = config.regions;
+  }
+  if (isNaN(Number(config.multiplier))) {
+    config.multiplier = 1;
+  }
+}
+
+/**
+ * Normalize a cloudrun requirement config in place.
+ *
+ * @param {any} config
+ * @return {CloudRunProjectConfig}
+ */
+function normalizeCloudRunConfig(config) {
+  if (!config.region && config.regions) {
+    config.region = config.regions;
+  }
+  config.jobs = config.jobs || [];
+  if (!(Number(config.unitsPerExecution) >= 0)) {
+    config.unitsPerExecution = CLOUD_RUN_DEFAULT_UNITS_PER_EXECUTION;
+  }
+  config.unitsPerExecution = Number(config.unitsPerExecution);
+  if (!(Number(config.lookbackHours) > 0)) {
+    config.lookbackHours = CLOUD_RUN_DEFAULT_LOOKBACK_HOURS;
+  }
+  config.lookbackHours = Number(config.lookbackHours);
+  return config;
+}
+
+/**
+ * Resolve requiredSize for every scaling requirement of a spanner instance.
+ *
+ * @param {AutoscalerSpanner} spanner
+ * @return {Promise<void>}
+ */
+async function enrichScalingRequirements(spanner) {
+  for (const requirement of spanner.requirements || []) {
+    const service = String(requirement.service);
+    switch (service) {
+      case 'dataflow':
+        requirement.config.forEach(normalizeDataflowConfig);
+        requirement.requiredSize = await getDataflowJobScalingRequirement(
+          requirement.config,
+          spanner.maxSize,
+        );
+        break;
+      case 'cloudrun':
+        requirement.requiredSize = await getCloudRunJobScalingRequirement(
+          requirement.config.map(normalizeCloudRunConfig),
+          spanner.maxSize,
+        );
+        break;
+      default:
+        logger.warn({
+          message: `Ignoring unknown scaling requirement service '${service}'`,
+          projectId: spanner.projectId,
+          instanceId: spanner.instanceId,
+        });
+    }
+  }
+}
+
+/**
  * Post a message to PubSub with the spanner instance and metrics.
  *
  * @param {AutoscalerSpanner} spanner
@@ -600,22 +793,7 @@ async function parseAndEnrichPayload(payload) {
           spanners[sIdx].units.toUpperCase(),
         )),
       };
-      const dataflowReq = spanners[sIdx].requirements?.[0];
-      if (dataflowReq && dataflowReq.service == 'dataflow') {
-        for (const config of dataflowReq.config) {
-          // Backwards compatibility: older configs used "regions".
-          if (!config.region && config.regions) {
-            config.region = config.regions;
-          }
-          if (isNaN(Number(config.multiplier))) {
-            config.multiplier = 1;
-          }
-        }
-        dataflowReq.requiredSize = await getDataflowJobScalingRequirement(
-          dataflowReq.config,
-          spanners[sIdx].maxSize,
-        );
-      }
+      await enrichScalingRequirements(spanners[sIdx]);
       spannersFound.push(spanners[sIdx]);
     } catch (err) {
       logger.error({

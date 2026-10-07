@@ -24,6 +24,12 @@ variable "dataflow_project_ids" {
   description = "List of Dataflow projects for running jobs checks"
 }
 
+variable "cloudrun_project_ids" {
+  type        = list(string)
+  default     = []
+  description = "Projects whose Cloud Run jobs the poller inspects"
+}
+
 variable "region" {
   type = string
 }
