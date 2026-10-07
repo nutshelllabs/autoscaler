@@ -71,8 +71,23 @@ const AutoscalerUnits = {
 
 /**
  * @typedef {{
+ *   projectId: string,
+ *   region?: string[],
+ *   regions?: string[],
+ *   jobs?: string[],
+ *   unitsPerExecution?: number,
+ *   lookbackHours?: number,
+ * }} CloudRunRequirementConfig
+ */
+
+/**
+ * @typedef {{
  *   service: "dataflow",
  *   config: DataflowRequirementConfig[],
+ *   requiredSize?: number,
+ * } | {
+ *   service: "cloudrun",
+ *   config: CloudRunRequirementConfig[],
  *   requiredSize?: number,
  * }} ScalingRequirement
  */

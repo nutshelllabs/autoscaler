@@ -1,0 +1,34 @@
+[
+  {
+    "projectId": "spanner-project",
+    "instanceId": "spanner-instance",
+    "scalerPubSubTopic": "projects/spanner-project/topics/spanner-scaling",
+    "units": "PROCESSING_UNITS",
+    "minSize": 200,
+    "maxSize": 12000,
+    "requirements": [
+      {
+        "service": "dataflow",
+        "config": [
+          {
+            "projectId": "dataflow-project",
+            "region": ["us-central1"],
+            "multiplier": 2
+          }
+        ]
+      },
+      {
+        "service": "cloudrun",
+        "config": [
+          {
+            "projectId": "cloudrun-project",
+            "region": ["us-central1"],
+            "jobs": ["conveyor-polyflow-node", "ingest-polyflow-node"],
+            "unitsPerExecution": 2000,
+            "lookbackHours": 12
+          }
+        ]
+      }
+    ]
+  }
+]

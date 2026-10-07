@@ -35,6 +35,9 @@
     *   [Thresholds](#thresholds)
     *   [Margins](#margins)
     *   [Metrics](#metrics)
+*   [Scaling requirements](#scaling-requirements)
+    *   [Dataflow](#dataflow)
+    *   [Cloud Run jobs](#cloud-run-jobs)
 *   [Example configuration for Cloud Run functions](#example-configuration-for-cloud-run-functions)
 *   [Example configuration for Google Kubernetes Engine](#example-configuration-for-google-kubernetes-engine)
 
@@ -111,6 +114,7 @@ npm run validate-config-file -- path/to/config_file
 | `maxNodes` (DEPRECATED)  | 3              | DEPRECATED: Maximum number of Cloud Spanner nodes that the instance can be scaled OUT to. |
 | `downstreamPubSubTopic`  | `undefined`    | Set this parameter to `projects/${projectId}/topics/downstream-topic` if you want the the Autoscaler to publish events that can be consumed by downstream applications.  See [Downstream messaging](../scaler/README.md#downstream-messaging) for more information. |
 | `scalerURL`              | `http://scaler`| URL where the scaler service receives HTTP requests. |
+| `requirements`           | `undefined`    | Array of workload requirements that set a floor on the instance size while external jobs run. Refer to [scaling requirements](#scaling-requirements). |
 
 ## Metrics parameters
 
@@ -260,6 +264,73 @@ ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingRequestedSize INT6
 ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingMethod STRING(MAX);
 ALTER TABLE spannerAutoscaler ADD COLUMN IF NOT EXISTS scalingPreviousSize INT64;
 ```
+
+## Scaling requirements
+
+A requirement describes a workload whose running jobs need a minimum
+Spanner size. On every poll the Poller resolves each requirement to a
+`requiredSize`, and the Scaler sums them. When the sum exceeds the current
+size the Scaler scales straight to it, skipping the metric based scaling
+method and its cooldown. While the sum is above zero it also acts as the
+`minSize`, so metric based scale-in cannot go below it. Once the jobs stop
+the normal scale-in rules apply.
+
+The sum is capped at `maxSize`.
+
+```json
+"requirements": [
+  {
+    "service": "dataflow",
+    "config": [
+      {"projectId": "my-dataflow-project", "region": ["us-central1"], "multiplier": 1}
+    ]
+  },
+  {
+    "service": "cloudrun",
+    "config": [
+      {
+        "projectId": "my-app-project",
+        "region": ["us-central1"],
+        "jobs": ["conveyor-polyflow-node", "ingest-polyflow-node"],
+        "unitsPerExecution": 2000
+      }
+    ]
+  }
+]
+```
+
+### Dataflow
+
+Counts the active Dataflow jobs in every configured project and region.
+The Poller service account needs `roles/dataflow.viewer` on each project.
+
+| Key          | Default | Description |
+| ------------ | ------- | ----------- |
+| `projectId`  |         | Project to list Dataflow jobs in. |
+| `region`     |         | Regions to list jobs in. `regions` is accepted as an alias. |
+| `multiplier` | 1       | Multiplies the units each job contributes. |
+
+Each job named `ingestion-job*` contributes 4000 units. Any other job
+contributes 4000 units, or 6000 and 8000 when its `numWorkers` display data
+is at least 400 or 800.
+
+### Cloud Run jobs
+
+Counts the running executions of Cloud Run jobs in every configured project
+and region. The Poller service account needs `roles/run.viewer` on each
+project.
+
+| Key                 | Default | Description |
+| ------------------- | ------- | ----------- |
+| `projectId`         |         | Project to list Cloud Run jobs in. |
+| `region`            |         | Regions to list jobs in. `regions` is accepted as an alias. |
+| `jobs`              | `[]`    | Job name prefixes to count. Empty counts every job in the region. |
+| `unitsPerExecution` | 2000    | Units each running execution contributes. |
+| `lookbackHours`     | 24      | Executions created earlier than this are not inspected. |
+
+An execution is running while it has no `completionTime`. The Poller lists
+executions newest first and stops once it reaches the lookback window, so a
+job with a long history stays cheap to inspect.
 
 ## Example configuration for Cloud Run functions
 

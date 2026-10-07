@@ -55,6 +55,7 @@ module "autoscaler-functions" {
   scaler_sa_email      = google_service_account.scaler_sa.email
   build_sa_id          = module.autoscaler-base.build_sa_id
   dataflow_project_ids = local.dataflow_project_ids
+  cloudrun_project_ids = local.cloudrun_project_ids
 }
 
 module "firestore" {
@@ -121,18 +122,31 @@ module "scheduler" {
           "regional_threshold" : 75,
         }
       ],
-      "requirements" : [
-        {
-          "service" : "dataflow",
-          "config" : [for project_id in local.dataflow_project_ids : {
-            "projectId" : project_id,
-            "region" : var.dataflow_regions,
-            "multiplier" : var.dataflow_pu_multiplier,
-          }],
-        }
-      ]
+      "requirements" : local.scaling_requirements,
     }
   ]))
+}
+
+locals {
+  scaling_requirements = concat(
+    length(local.dataflow_project_ids) == 0 ? [] : [{
+      "service" : "dataflow",
+      "config" : [for project_id in local.dataflow_project_ids : {
+        "projectId" : project_id,
+        "region" : var.dataflow_regions,
+        "multiplier" : var.dataflow_pu_multiplier,
+      }],
+    }],
+    length(local.cloudrun_project_ids) == 0 ? [] : [{
+      "service" : "cloudrun",
+      "config" : [for project_id in local.cloudrun_project_ids : {
+        "projectId" : project_id,
+        "region" : local.cloudrun_regions,
+        "jobs" : var.cloudrun_job_names,
+        "unitsPerExecution" : var.cloudrun_pu_per_execution,
+      }],
+    }],
+  )
 }
 
 module "monitoring" {

@@ -1,0 +1,19 @@
+[
+  {
+    "projectId": "spanner-project",
+    "instanceId": "spanner-instance",
+    "scalerPubSubTopic": "projects/spanner-project/topics/spanner-scaling",
+    "requirements": [
+      {
+        "service": "cloudrun",
+        "config": [
+          {
+            "projectId": "cloudrun-project",
+            "region": ["us-central1"],
+            "multiplier": 2
+          }
+        ]
+      }
+    ]
+  }
+]

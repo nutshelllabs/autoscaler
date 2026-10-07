@@ -75,6 +75,15 @@ resource "google_project_iam_member" "dataflow_iam" {
   member   = "serviceAccount:${var.poller_sa_email}"
 }
 
+// Cloud Run jobs
+
+resource "google_project_iam_member" "cloudrun_iam" {
+  for_each = toset(var.cloudrun_project_ids)
+  project  = each.value
+  role     = "roles/run.viewer"
+  member   = "serviceAccount:${var.poller_sa_email}"
+}
+
 // Cloud Run functions
 
 resource "google_storage_bucket" "bucket_gcf_source" {

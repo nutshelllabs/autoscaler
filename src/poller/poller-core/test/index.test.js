@@ -40,6 +40,10 @@ const buildMetrics = app.__get__('buildMetrics');
 /** @type {function(string): Promise<AutoscalerSpanner[]>} */
 const parseAndEnrichPayload = app.__get__('parseAndEnrichPayload');
 const validateCustomMetric = app.__get__('validateCustomMetric');
+const getCloudRunJobScalingRequirement = app.__get__(
+  'getCloudRunJobScalingRequirement',
+);
+const enrichScalingRequirements = app.__get__('enrichScalingRequirements');
 
 describe('#buildMetrics', () => {
   it('should return 3 metrics', () => {
@@ -362,5 +366,259 @@ describe('#parseAndEnrichPayload', () => {
     );
 
     unset();
+  });
+});
+
+describe('#getCloudRunJobScalingRequirement', () => {
+  const NOW = Date.parse('2026-10-07T12:00:00Z');
+  const JOBS = 'projects/{p}/locations/{r}/jobs';
+  const clock = {restore: () => {}};
+  const jobsList = sinon.stub();
+  const executionsList = sinon.stub();
+  /** @type {function(): void} */
+  let unset = () => {};
+
+  /**
+   * @param {string} parent
+   * @param {string[]} names
+   * @return {any}
+   */
+  function jobsPage(parent, names) {
+    return {data: {jobs: names.map((n) => ({name: `${parent}/jobs/${n}`}))}};
+  }
+
+  /**
+   * @param {number} hoursAgo
+   * @param {boolean} completed
+   * @return {any}
+   */
+  function execution(hoursAgo, completed) {
+    const createTime = new Date(NOW - hoursAgo * 3600 * 1000).toISOString();
+    return completed ? {createTime, completionTime: createTime} : {createTime};
+  }
+
+  /**
+   * @param {Object} [overrides]
+   * @return {any[]}
+   */
+  function config(overrides) {
+    return [
+      {
+        projectId: 'p',
+        region: ['r'],
+        jobs: ['conveyor-polyflow-node'],
+        unitsPerExecution: 2000,
+        lookbackHours: 24,
+        ...overrides,
+      },
+    ];
+  }
+
+  beforeEach(() => {
+    sinon.useFakeTimers({now: NOW, toFake: ['Date']});
+    jobsList.reset();
+    executionsList.reset();
+    unset = app.__set__('cloudRunRestApi', {
+      projects: {
+        locations: {
+          jobs: {list: jobsList, executions: {list: executionsList}},
+        },
+      },
+    });
+  });
+
+  afterEach(() => {
+    sinon.restore();
+    clock.restore();
+    unset();
+  });
+
+  it('adds units for every running execution of a matching job', async () => {
+    const parent = JOBS.replace('/jobs', '')
+      .replace('{p}', 'p')
+      .replace('{r}', 'r');
+    jobsList.resolves(
+      jobsPage(parent, ['conveyor-polyflow-node', 'ingest-polyflow-node']),
+    );
+    executionsList.resolves({
+      data: {
+        executions: [
+          execution(1, false),
+          execution(2, true),
+          execution(3, false),
+        ],
+      },
+    });
+
+    const size = await getCloudRunJobScalingRequirement(config(), 12000);
+
+    should(size).equal(4000);
+    sinon.assert.calledOnce(executionsList);
+    sinon.assert.calledWithMatch(executionsList, {
+      parent: `${parent}/jobs/conveyor-polyflow-node`,
+    });
+  });
+
+  it('counts every job when no job prefix is configured', async () => {
+    jobsList.resolves(jobsPage('projects/p/locations/r', ['a', 'b']));
+    executionsList.resolves({data: {executions: [execution(1, false)]}});
+
+    const size = await getCloudRunJobScalingRequirement(
+      config({jobs: []}),
+      12000,
+    );
+
+    should(size).equal(4000);
+    sinon.assert.calledTwice(executionsList);
+  });
+
+  it('returns zero when nothing is running', async () => {
+    jobsList.resolves(
+      jobsPage('projects/p/locations/r', ['conveyor-polyflow-node']),
+    );
+    executionsList.resolves({data: {executions: [execution(1, true)]}});
+
+    should(await getCloudRunJobScalingRequirement(config(), 12000)).equal(0);
+  });
+
+  it('caps the requirement at maxUnits', async () => {
+    jobsList.resolves(
+      jobsPage('projects/p/locations/r', ['conveyor-polyflow-node']),
+    );
+    executionsList.resolves({
+      data: {executions: [execution(1, false), execution(1, false)]},
+    });
+
+    should(await getCloudRunJobScalingRequirement(config(), 3000)).equal(3000);
+  });
+
+  it('stops paging executions older than the lookback window', async () => {
+    jobsList.resolves(
+      jobsPage('projects/p/locations/r', ['conveyor-polyflow-node']),
+    );
+    executionsList
+      .onFirstCall()
+      .resolves({
+        data: {
+          executions: [execution(1, false), execution(30, true)],
+          nextPageToken: 'more',
+        },
+      })
+      .onSecondCall()
+      .resolves({data: {executions: [execution(40, false)]}});
+
+    should(await getCloudRunJobScalingRequirement(config(), 12000)).equal(2000);
+    sinon.assert.calledOnce(executionsList);
+  });
+
+  it('follows execution pages inside the lookback window', async () => {
+    jobsList.resolves(
+      jobsPage('projects/p/locations/r', ['conveyor-polyflow-node']),
+    );
+    executionsList
+      .onFirstCall()
+      .resolves({
+        data: {executions: [execution(1, true)], nextPageToken: 'more'},
+      })
+      .onSecondCall()
+      .resolves({data: {executions: [execution(2, false)]}});
+
+    should(await getCloudRunJobScalingRequirement(config(), 12000)).equal(2000);
+    sinon.assert.calledTwice(executionsList);
+    sinon.assert.calledWithMatch(executionsList.secondCall, {
+      pageToken: 'more',
+    });
+  });
+
+  it('inspects every configured project and region', async () => {
+    jobsList.resolves(
+      jobsPage('projects/x/locations/y', ['conveyor-polyflow-node']),
+    );
+    executionsList.resolves({data: {executions: [execution(1, false)]}});
+
+    const size = await getCloudRunJobScalingRequirement(
+      [
+        {...config()[0], region: ['r1', 'r2']},
+        {...config()[0], projectId: 'q', unitsPerExecution: 500},
+      ],
+      12000,
+    );
+
+    should(size).equal(4500);
+    sinon.assert.calledWithMatch(jobsList, {parent: 'projects/p/locations/r1'});
+    sinon.assert.calledWithMatch(jobsList, {parent: 'projects/p/locations/r2'});
+    sinon.assert.calledWithMatch(jobsList, {parent: 'projects/q/locations/r'});
+  });
+});
+
+describe('#enrichScalingRequirements', () => {
+  afterEach(() => sinon.restore());
+
+  it('resolves requiredSize for every requirement', async () => {
+    const dataflow = sinon.stub().resolves(4000);
+    const cloudrun = sinon.stub().resolves(2000);
+    const unsetDataflow = app.__set__(
+      'getDataflowJobScalingRequirement',
+      dataflow,
+    );
+    const unsetCloudRun = app.__set__(
+      'getCloudRunJobScalingRequirement',
+      cloudrun,
+    );
+    const spanner = /** @type {any} */ ({
+      projectId: 'p',
+      instanceId: 'i',
+      maxSize: 12000,
+      requirements: [
+        {service: 'dataflow', config: [{projectId: 'd', regions: ['r']}]},
+        {
+          service: 'cloudrun',
+          config: [{projectId: 'c', regions: ['r'], unitsPerExecution: '0'}],
+        },
+      ],
+    });
+
+    await enrichScalingRequirements(spanner);
+
+    should(spanner.requirements[0].requiredSize).equal(4000);
+    should(spanner.requirements[1].requiredSize).equal(2000);
+    should(dataflow.firstCall.args[0][0]).containEql({
+      projectId: 'd',
+      region: ['r'],
+      multiplier: 1,
+    });
+    should(cloudrun.firstCall.args[0][0]).containEql({
+      projectId: 'c',
+      region: ['r'],
+      jobs: [],
+      unitsPerExecution: 0,
+      lookbackHours: 24,
+    });
+    unsetDataflow();
+    unsetCloudRun();
+  });
+
+  it('applies cloudrun defaults', async () => {
+    const cloudrun = sinon.stub().resolves(0);
+    const unset = app.__set__('getCloudRunJobScalingRequirement', cloudrun);
+    const spanner = /** @type {any} */ ({
+      maxSize: 12000,
+      requirements: [
+        {service: 'cloudrun', config: [{projectId: 'c', region: ['r']}]},
+      ],
+    });
+
+    await enrichScalingRequirements(spanner);
+
+    should(cloudrun.firstCall.args[0][0]).containEql({
+      jobs: [],
+      unitsPerExecution: 2000,
+      lookbackHours: 24,
+    });
+    unset();
+  });
+
+  it('is a no-op without requirements', async () => {
+    await enrichScalingRequirements(/** @type {any} */ ({maxSize: 100}));
   });
 });
