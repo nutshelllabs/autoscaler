@@ -330,10 +330,12 @@ async function processScalingRequest(spanner, autoscalerState) {
       payload: spanner,
     });
 
-    // just sum everything up
-    const totalRequiredSize = spanner.requirements
-      .map((r) => r.requiredSize || 0)
-      .reduce((sum, num) => sum + num, 0);
+    const totalRequiredSize = Math.min(
+      spanner.requirements
+        .map((r) => r.requiredSize || 0)
+        .reduce((sum, num) => sum + num, 0),
+      spanner.maxSize,
+    );
     if (totalRequiredSize > spanner.currentSize) {
       logger.info({
         message: `----- ${spanner.projectId}/${spanner.instanceId} has ${spanner.currentSize} ${spanner.units} but ${totalRequiredSize} is required. Autoscaling...`,
