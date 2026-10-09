@@ -372,7 +372,6 @@ describe('#parseAndEnrichPayload', () => {
 describe('#getCloudRunJobScalingRequirement', () => {
   const NOW = Date.parse('2026-10-07T12:00:00Z');
   const JOBS = 'projects/{p}/locations/{r}/jobs';
-  const clock = {restore: () => {}};
   const jobsList = sinon.stub();
   const executionsList = sinon.stub();
   /** @type {function(): void} */
@@ -415,7 +414,8 @@ describe('#getCloudRunJobScalingRequirement', () => {
   }
 
   beforeEach(() => {
-    sinon.useFakeTimers({now: NOW, toFake: ['Date']});
+    // Rewire captures Date when loading the module, before fake timers run.
+    sinon.stub(app.__get__('Date'), 'now').returns(NOW);
     jobsList.reset();
     executionsList.reset();
     unset = app.__set__('cloudRunRestApi', {
@@ -429,7 +429,6 @@ describe('#getCloudRunJobScalingRequirement', () => {
 
   afterEach(() => {
     sinon.restore();
-    clock.restore();
     unset();
   });
 

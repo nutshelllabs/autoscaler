@@ -257,6 +257,7 @@ describe('#processScalingRequest', () => {
 
   it('should scale straight to the summed requirement when above current size', async function () {
     const spanner = createSpannerParameters({
+      maxSize: 8000,
       requirements: [
         {service: 'dataflow', config: [], requiredSize: 4000},
         {service: 'cloudrun', config: [], requiredSize: 2000},
@@ -278,10 +279,60 @@ describe('#processScalingRequest', () => {
     });
   });
 
+  it('should cap summed requirements at maxSize when scaling up', async function () {
+    const spanner = createSpannerParameters({
+      currentSize: 1000,
+      maxSize: 4000,
+      requirements: [
+        {service: 'dataflow', config: [], requiredSize: 4000},
+        {service: 'cloudrun', config: [], requiredSize: 2000},
+      ],
+    });
+    stubScaleSpannerInstance.returns('scalingOperationId');
+    const stateStub = createStubState();
+
+    await processScalingRequest(spanner, stateStub);
+
+    sinon.assert.calledOnceWithExactly(stubScaleSpannerInstance, spanner, 4000);
+    assert.equals(getSuggestedSizeStub.callCount, 0);
+    sinon.assert.calledWithMatch(stateStub.updateState, {
+      scalingOperationId: 'scalingOperationId',
+      scalingPreviousSize: 1000,
+      scalingRequestedSize: 4000,
+    });
+  });
+
+  it('should cap the requirement floor and avoid scaling when already at maxSize', async function () {
+    const spanner = createSpannerParameters({
+      currentSize: 4000,
+      maxSize: 4000,
+      requirements: [
+        {service: 'dataflow', config: [], requiredSize: 4000},
+        {service: 'cloudrun', config: [], requiredSize: 2000},
+      ],
+    });
+    getSuggestedSizeStub.returns(spanner.currentSize);
+    const stateStub = createStubState();
+
+    await processScalingRequest(spanner, stateStub);
+
+    assert.equals(stubScaleSpannerInstance.callCount, 0);
+    assert.equals(stateStub.updateState.callCount, 0);
+    assert.equals(spanner.minSize, 4000);
+    sinon.assert.calledOnceWithExactly(getSuggestedSizeStub, spanner);
+    sinon.assert.calledWith(
+      countersStub.incScalingDeniedCounter,
+      spanner,
+      4000,
+      'MAX_SIZE',
+    );
+  });
+
   it('should raise minSize to the requirement when already at or above it', async function () {
     const spanner = createSpannerParameters({
       currentSize: 3000,
       minSize: 200,
+      maxSize: 4000,
       requirements: [{service: 'cloudrun', config: [], requiredSize: 2000}],
     });
     getSuggestedSizeStub.returns(3000);
