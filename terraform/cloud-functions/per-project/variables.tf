@@ -14,6 +14,12 @@
  * limitations under the License.
  */
 
+variable "enable_poller" {
+  type        = bool
+  default     = true
+  description = "Deploy the Node poller function, topic and scheduler. Set false where an external poller publishes to scaler-topic."
+}
+
 variable "project_id" {
   type = string
 }

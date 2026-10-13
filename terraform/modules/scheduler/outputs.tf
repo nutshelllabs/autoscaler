@@ -15,6 +15,6 @@
  */
 
 output "scheduler_job_id" {
-  value       = google_cloud_scheduler_job.poller_job.id
+  value       = var.enable_poller ? google_cloud_scheduler_job.poller_job[0].id : null
   description = "ID of the Scheduler job"
 }

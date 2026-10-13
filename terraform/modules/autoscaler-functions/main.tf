@@ -27,22 +27,24 @@ data "google_project" "project" {
 // PubSub
 
 resource "google_pubsub_topic" "poller_topic" {
+  count   = var.enable_poller ? 1 : 0
   project = var.project_id
   name    = "poller-topic"
 }
 
 resource "google_pubsub_topic_iam_member" "poller_pubsub_sub_iam" {
+  count   = var.enable_poller ? 1 : 0
   project = var.project_id
-  topic   = google_pubsub_topic.poller_topic.name
+  topic   = google_pubsub_topic.poller_topic[0].name
   role    = "roles/pubsub.subscriber"
   member  = "serviceAccount:${var.poller_sa_email}"
 }
 
 resource "google_pubsub_topic_iam_member" "forwarder_pubsub_pub_iam" {
-  for_each = toset(var.forwarder_sa_emails)
+  for_each = var.enable_poller ? toset(var.forwarder_sa_emails) : toset([])
 
   project = var.project_id
-  topic   = google_pubsub_topic.poller_topic.name
+  topic   = google_pubsub_topic.poller_topic[0].name
   role    = "roles/pubsub.publisher"
   member  = each.key
 }
@@ -119,6 +121,7 @@ resource "google_storage_bucket_object" "gcs_functions_source" {
 }
 
 resource "google_cloudfunctions2_function" "poller_function" {
+  count    = var.enable_poller ? 1 : 0
   name     = "tf-poller-function"
   project  = var.project_id
   location = var.region
@@ -145,7 +148,7 @@ resource "google_cloudfunctions2_function" "poller_function" {
 
   event_trigger {
     event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
-    pubsub_topic          = google_pubsub_topic.poller_topic.id
+    pubsub_topic          = google_pubsub_topic.poller_topic[0].id
     retry_policy          = "RETRY_POLICY_RETRY"
     service_account_email = var.poller_sa_email
   }
@@ -184,9 +187,10 @@ resource "google_cloudfunctions2_function" "scaler_function" {
 }
 
 resource "google_cloud_run_service_iam_member" "cloud_run_poller_invoker" {
-  project  = google_cloudfunctions2_function.poller_function.project
-  location = google_cloudfunctions2_function.poller_function.location
-  service  = google_cloudfunctions2_function.poller_function.name
+  count    = var.enable_poller ? 1 : 0
+  project  = google_cloudfunctions2_function.poller_function[0].project
+  location = google_cloudfunctions2_function.poller_function[0].location
+  service  = google_cloudfunctions2_function.poller_function[0].name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${var.poller_sa_email}"
 }

@@ -14,6 +14,12 @@
  * limitations under the License.
  */
 
+variable "enable_poller" {
+  type        = bool
+  default     = true
+  description = "Create the poller scheduler job. False keeps only the Firestore database."
+}
+
 variable "project_id" {
   type = string
 }

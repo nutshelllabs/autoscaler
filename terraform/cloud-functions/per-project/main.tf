@@ -49,6 +49,7 @@ module "autoscaler-base" {
 module "autoscaler-functions" {
   source = "../../modules/autoscaler-functions"
 
+  enable_poller        = var.enable_poller
   project_id           = var.project_id
   region               = var.region
   poller_sa_email      = google_service_account.poller_sa.email
@@ -83,6 +84,7 @@ module "spanner" {
 
 module "scheduler" {
   source                  = "../../modules/scheduler"
+  enable_poller           = var.enable_poller
   location                = var.firestore_location
   project_id              = var.project_id
   spanner_name            = var.spanner_name
