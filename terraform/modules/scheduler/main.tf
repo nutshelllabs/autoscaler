@@ -45,6 +45,7 @@ resource "google_firestore_database" "default" {
 }
 
 resource "google_cloud_scheduler_job" "poller_job" {
+  count       = var.enable_poller ? 1 : 0
   project     = var.project_id
   name        = "poll-main-instance-metrics"
   description = "Poll metrics for main-instance"

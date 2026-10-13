@@ -14,6 +14,12 @@
  * limitations under the License.
  */
 
+variable "enable_poller" {
+  type        = bool
+  default     = true
+  description = "Deploy the poller function, its topic and bindings. False keeps only the scaler."
+}
+
 variable "project_id" {
   type = string
 }

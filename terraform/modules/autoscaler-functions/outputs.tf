@@ -15,7 +15,7 @@
  */
 
 output "poller_topic" {
-  value       = google_pubsub_topic.poller_topic.id
+  value       = var.enable_poller ? google_pubsub_topic.poller_topic[0].id : null
   description = "PubSub topic used by the poller function"
 }
 
